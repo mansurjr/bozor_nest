@@ -12,13 +12,15 @@ import { StallModule } from './stall/stall.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { ContractModule } from './contract/contract.module';
 import { TransactionModule } from './transaction/transaction.module';
+import { ClickWebhookModule } from './click_webhook/click_webhook.module';
+import { StatiscticsModule } from './statisctics/statisctics.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       envFilePath: ".env",
       isGlobal: true,
-    }), PrismaModule, UsersModule, AuthModule, SalesTypeModule, SectionModule, OwnersModule, StoreModule, StallModule, AttendanceModule, ContractModule, TransactionModule],
+    }), PrismaModule, UsersModule, AuthModule, SalesTypeModule, SectionModule, OwnersModule, StoreModule, StallModule, AttendanceModule, ContractModule, TransactionModule, ClickWebhookModule, StatiscticsModule],
   providers: [AppService],
   exports: [ConfigModule],
 })

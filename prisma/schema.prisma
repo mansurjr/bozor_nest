@@ -95,12 +95,13 @@ model Contract {
 // ==================== ATTENDANCE ====================
 
 model Attendance {
-  id          Int               @id @default(autoincrement())
-  date        DateTime          @db.Date
-  stallId     Int
-  status      AttendancePayment @default(UNPAID)
-  amount      Decimal?          @default(0)
-  transaction Transaction?      @relation("AttendanceTransaction")
+  id            Int               @id @default(autoincrement())
+  date          DateTime          @db.Date
+  stallId       Int
+  status        AttendancePayment @default(UNPAID)
+  amount        Decimal?          @default(0)
+  transactionId Int?              @unique
+  transaction   Transaction?      @relation("AttendanceTransaction")
 
   createdAt DateTime  @default(now())
   updatedAt DateTime? @updatedAt
@@ -124,6 +125,21 @@ model Transaction {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   contract  Contract? @relation(fields: [contractId], references: [id])
+}
+
+model ClickTransaction {
+  id              Int      @id @default(autoincrement())
+  clickTransId    String   @unique
+  clickPaydocId   String?
+  merchantTransId String
+  amount          Decimal
+  action          Int
+  signTime        DateTime
+  status          Int      @default(0)
+  error           Int      @default(0)
+  errorNote       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 // ==================== SUPPORT TABLES ====================
