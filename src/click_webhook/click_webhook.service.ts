@@ -95,10 +95,10 @@ export class ClickWebhookService {
             };
           }
 
-          // Create new transaction if not exists
+          // Create new transaction if not exists (use merchant_trans_id as transactionId)
           transaction = await this.prisma.transaction.create({
             data: {
-              transactionId: `trx_${Date.now()}`,
+              transactionId: String(attendance.id),
               amount: attendance.amount || new Prisma.Decimal(0),
               status: 'PENDING',
               paymentMethod: 'CLICK',
@@ -206,22 +206,30 @@ export class ClickWebhookService {
         return { click_trans_id, merchant_trans_id, merchant_prepare_id, error: 0, error_note: 'Success' };
       }
 
-      let transaction = await this.prisma.transaction.findUnique({
-        where: { transactionId: merchant_trans_id },
-      });
+       let transaction = await this.prisma.transaction.findUnique({
+         where: { transactionId: merchant_trans_id },
+       });
 
-      if (!transaction) {
-        const attendanceId = Number(merchant_trans_id);
-        await this.prisma.attendance.update({
-          where: { id: attendanceId },
-          data: { status: 'PAID', transaction: { connect: { id: prepareTransaction.id } } },
-        });
-      } else {
-        await this.prisma.transaction.update({
-          where: { id: transaction.id },
-          data: { status: 'PAID', paymentMethod: 'CLICK' },
-        });
-      }
+       if (!transaction) {
+         // Fallback: no transaction found, mark attendance as paid
+         const attendanceId = Number(merchant_trans_id);
+         await this.prisma.attendance.update({
+           where: { id: attendanceId },
+           data: { status: 'PAID' },
+         });
+       } else {
+         // Mark transaction as paid and ensure attendance status is PAID
+         transaction = await this.prisma.transaction.update({
+           where: { id: transaction.id },
+           data: { status: 'PAID', paymentMethod: 'CLICK' },
+         });
+         if (transaction.attendanceId) {
+           await this.prisma.attendance.update({
+             where: { id: transaction.attendanceId },
+             data: { status: 'PAID' },
+           });
+         }
+       }
 
       await this.prisma.clickTransaction.update({
         where: { id: Number(merchant_prepare_id) },
