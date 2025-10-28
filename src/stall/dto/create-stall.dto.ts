@@ -7,6 +7,11 @@ export class CreateStallDto {
   @IsPositive()
   area: number;
 
+
+  @ApiProperty({ description: 'Stall number', example: 'A1' })
+  @IsString()
+  stallNumber: string;
+
   @ApiPropertyOptional({ description: 'SaleType ID', example: 1 })
   @IsNumber()
   saleTypeId: number;
