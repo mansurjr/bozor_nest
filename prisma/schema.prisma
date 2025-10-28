@@ -60,6 +60,7 @@ model Store {
 
 model Stall {
   id                Int          @id @default(autoincrement())
+  stallNumber       String?      @unique
   area              Float
   saleTypeId        Int?
   sectionId         Int?

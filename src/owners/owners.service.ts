@@ -29,7 +29,7 @@ export class OwnersService {
     const [owners, total] = await Promise.all([
       this.prisma.owner.findMany({
         where,
-        include: { createdBy: true, contracts: true },
+        include: { createdBy: true, contracts: { include: { store: true } } },
         skip,
         take: limit,
       }),
@@ -50,7 +50,7 @@ export class OwnersService {
   async findOne(id: number) {
     const owner = await this.prisma.owner.findUnique({
       where: { id },
-      include: { createdBy: true, contracts: true },
+      include: { createdBy: true, contracts: { include: { store: true } } },
     });
     if (!owner) throw new NotFoundException(`Owner with id ${id} not found`);
     return owner;
