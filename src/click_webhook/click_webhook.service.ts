@@ -188,7 +188,7 @@ export class ClickWebhookService {
 
       const prepareTransaction = await this.prisma.clickTransaction.findUnique({
         where: { id: Number(merchant_prepare_id) },
-      });
+      }); 
 
       if (!prepareTransaction) {
         return { click_trans_id, merchant_trans_id, merchant_prepare_id, error: -6, error_note: 'Transaction not found' };

@@ -23,11 +23,20 @@ export class ContractController {
   @Get()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get all contracts' })
-  @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false })
-  findAll(@Query('page') page = 1, @Query('limit') limit = 10) {
-    return this.contractService.findAll(Number(page), Number(limit));
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of items per page' })
+  @ApiQuery({ name: 'isActive', required: false, type: Boolean, description: 'Filter by active/inactive contracts' })
+  findAll(
+    @Query('page', ParseIntPipe) page = 1,
+    @Query('limit', ParseIntPipe) limit = 10,
+    @Query('isActive') isActive?: string,
+  ) {
+    const activeFilter =
+      isActive !== undefined ? isActive === 'true' : undefined;
+
+    return this.contractService.findAll(page, limit, activeFilter);
   }
+
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
