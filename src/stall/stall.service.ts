@@ -3,10 +3,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateStallDto } from './dto/create-stall.dto';
 import { UpdateStallDto } from './dto/update-stall.dto';
 import { Prisma, SaleType } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class StallService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) { }
 
 
   async create(dto: CreateStallDto) {
@@ -34,7 +35,7 @@ export class StallService {
       data: { ...dto, dailyFee },
       include: { SaleType: true, Section: true },
     });
-    const click_url = `https://my.click.uz/services/pay?service_id=${process.env.serviceId}&merchant_id=${process.env.merchantId!}&amount=${newStall.dailyFee}&${newStall.id}`
+    const click_url = `https://my.click.uz/services/pay?service_id=${this.config.get("serviceId")}&merchant_id=${this.config.get("merchantId")}&amount=${newStall.dailyFee}&${newStall.stallNumber}`
     return await this.prisma.stall.update({
       where: { id: newStall.id },
       data: { click_payment_url: click_url },
