@@ -14,14 +14,17 @@ import { ContractModule } from './contract/contract.module';
 import { TransactionModule } from './transaction/transaction.module';
 import { ClickWebhookModule } from './click_webhook/click_webhook.module';
 import { StatiscticsModule } from './statisctics/statisctics.module';
+import { JwtStrategy } from './common/strategies/access-strategy';
+import { RefreshJwtStrategy } from './common/strategies/refresh-strategy';
+import { JwtModule } from './jwt/jwt.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       envFilePath: ".env",
       isGlobal: true,
-    }), PrismaModule, UsersModule, AuthModule, SalesTypeModule, SectionModule, OwnersModule, StoreModule, StallModule, AttendanceModule, ContractModule, TransactionModule, ClickWebhookModule, StatiscticsModule],
-  providers: [AppService],
+    }), PrismaModule, UsersModule, AuthModule, SalesTypeModule, SectionModule, OwnersModule, StoreModule, StallModule, AttendanceModule, ContractModule, TransactionModule, ClickWebhookModule, StatiscticsModule, JwtModule],
+  providers: [AppService, JwtStrategy, RefreshJwtStrategy],
   exports: [ConfigModule],
 })
-export class AppModule {}
+export class AppModule { }

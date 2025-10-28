@@ -34,15 +34,24 @@ export class ContractService {
     });
   }
 
-  async findAll(page = 1, limit = 10) {
-    const total = await this.prisma.contract.count();
-    const data = await this.prisma.contract.findMany({
-      include: { owner: true, store: true, createdBy: true, transactions: true },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
-    return { total, page, limit, data };
+ async findAll(page = 1, limit = 10, isActive?: boolean) {
+  const where: Prisma.ContractWhereInput = {};
+
+  if (isActive !== undefined) {
+    where.isActive = isActive;
   }
+
+  const total = await this.prisma.contract.count({ where });
+  const data = await this.prisma.contract.findMany({
+    where,
+    include: { owner: true, store: true, createdBy: true, transactions: true },
+    skip: (page - 1) * limit,
+    take: limit,
+  });
+
+  return { total, page, limit, data };
+}
+
 
   async findOne(id: number) {
     const contract = await this.prisma.contract.findUnique({
@@ -87,6 +96,6 @@ export class ContractService {
 
   async remove(id: number) {
     await this.findOne(id);
-    return this.prisma.contract.delete({ where: { id } });
+    return this.prisma.contract.update({ where: { id }, data: { isActive: false } })
   }
 }
