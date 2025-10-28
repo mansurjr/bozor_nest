@@ -28,13 +28,23 @@ export class StoresController {
   @ApiQuery({ name: 'search', required: false, description: 'Search by store number or description' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number', example: 1 })
   @ApiQuery({ name: 'limit', required: false, description: 'Number of records per page', example: 10 })
+  @ApiQuery({ name: 'onlyFree', required: false, description: 'Return only not-occupied stores', example: false })
+  @ApiQuery({ name: 'withContracts', required: false, description: 'Include contracts relation in response', example: false })
+  @ApiQuery({ name: 'asOf', required: false, description: 'ISO date to evaluate occupancy (default: today)' })
   @ApiResponse({ status: 200, description: 'List of stores returned.' })
   findAll(
     @Query('search') search?: string,
     @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10
+    @Query('limit') limit: number = 10,
+    @Query('onlyFree') onlyFree?: string,
+    @Query('withContracts') withContracts?: string,
+    @Query('asOf') asOf?: string,
   ) {
-    return this.storesService.findAll(search, Number(page), Number(limit));
+    return this.storesService.findAll(search, Number(page), Number(limit), {
+      onlyFree: onlyFree === 'true',
+      withContracts: withContracts === 'true',
+      asOf,
+    });
   }
 
   @Get(':id')
