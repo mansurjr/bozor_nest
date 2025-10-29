@@ -3,10 +3,11 @@ import { PrismaService } from "../prisma/prisma.service";
 import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
 import { Prisma } from "@prisma/client";
+import { ConfigService } from "@nestjs/config";
 
 @Injectable()
 export class ContractService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) { }
 
   private isOverlap(
     aStart?: Date | null,
@@ -81,10 +82,10 @@ export class ContractService {
       },
     });
 
-    const serviceId = process.env.CLICK_SERVICE_ID || process.env.serviceId;
-    const merchantId = process.env.CLICK_MERCHANT_ID || process.env.merchantId;
+    const serviceId = this.config.get("serviceId");
+    const merchantId = this.config.get("merchantId");
     const amount = dto.shopMonthlyFee ?? created.shopMonthlyFee?.toString() ?? '';
-    const click_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&merchant_trans_id=${created.id}`;
+    const click_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&merchant_trans_id=${created.store.storeNumber}`;
 
     await this.prisma.store.update({
       where: { id: store.id },
@@ -94,23 +95,23 @@ export class ContractService {
     return created;
   }
 
- async findAll(page = 1, limit = 10, isActive?: boolean) {
-  const where: Prisma.ContractWhereInput = {};
+  async findAll(page = 1, limit = 10, isActive?: boolean) {
+    const where: Prisma.ContractWhereInput = {};
 
-  if (isActive !== undefined) {
-    where.isActive = isActive;
+    if (isActive !== undefined) {
+      where.isActive = isActive;
+    }
+
+    const total = await this.prisma.contract.count({ where });
+    const data = await this.prisma.contract.findMany({
+      where,
+      include: { owner: true, store: true, createdBy: true, transactions: true },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return { total, page, limit, data };
   }
-
-  const total = await this.prisma.contract.count({ where });
-  const data = await this.prisma.contract.findMany({
-    where,
-    include: { owner: true, store: true, createdBy: true, transactions: true },
-    skip: (page - 1) * limit,
-    take: limit,
-  });
-
-  return { total, page, limit, data };
-}
 
 
   async findOne(id: number) {

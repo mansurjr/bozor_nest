@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStallDto } from './dto/create-stall.dto';
 import { UpdateStallDto } from './dto/update-stall.dto';
@@ -109,5 +109,17 @@ export class StallService {
   async remove(id: number) {
     await this.findOne(id);
     return this.prisma.stall.delete({ where: { id } });
+  }
+  async checkStallNumber(stallNumber: string) {
+    const exists = await this.prisma.stall.findUnique({
+      where: { stallNumber },
+      select: { id: true },
+    });
+
+    if (exists) {
+      throw new BadRequestException(`Stall number "${stallNumber}" is already in use`);
+    }
+
+    return { valid: true, message: `Stall number "${stallNumber}" is available` };
   }
 }
