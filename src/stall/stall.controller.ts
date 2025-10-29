@@ -36,6 +36,37 @@ export class StallController {
     return this.stallService.findAll(search, Number(page), Number(limit));
   }
 
+  @Get('check-number/:stallNumber')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Check if a stall number is valid or already exists' })
+  @ApiParam({
+    name: 'stallNumber',
+    type: String,
+    description: 'The stall number to check',
+    example: 'A-105',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Stall number is available',
+    schema: {
+      example: { valid: true, message: 'Stall number "A-105" is available' },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Stall number is already taken',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: 'Stall number "A-105" is already in use',
+        error: 'Bad Request',
+      },
+    },
+  })
+  checkStallNumber(@Param('stallNumber') stallNumber: string) {
+    return this.stallService.checkStallNumber(stallNumber);
+  }
+  
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get a Stall by ID' })
