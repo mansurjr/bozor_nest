@@ -10,7 +10,7 @@ export class ContractService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService
-  ) {}
+  ) { }
 
   private isOverlap(
     aStart?: Date | null,
@@ -87,8 +87,10 @@ export class ContractService {
       },
     });
 
-    const serviceId = this.config.get<string>("CLICK_SERVICE_ID") || this.config.get<string>("serviceId");
-    const merchantId = this.config.get<string>("CLICK_MERCHANT_ID") || this.config.get<string>("merchantId");
+    const serviceId = this.config.get<number>("CLICK_SERVICE_ID");
+    const merchantId = this.config.get<number>("CLICK_MERCHANT_ID")
+    console.log(serviceId)
+    console.log(merchantId)
     const amount = dto.shopMonthlyFee ?? created.shopMonthlyFee?.toString() ?? "";
     const click_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&merchant_trans_id=${created.store.storeNumber}`;
 
@@ -173,8 +175,10 @@ export class ContractService {
       if (!store)
         throw new NotFoundException(`Store with id ${storeId} not found`);
 
-      const serviceId = this.config.get<string>("CLICK_SERVICE_ID") || this.config.get<string>("serviceId");
-      const merchantId = this.config.get<string>("CLICK_MERCHANT_ID") || this.config.get<string>("merchantId");
+      const serviceId = this.config.get<number>("CLICK_SERVICE_ID");
+      const merchantId = this.config.get<number>("CLICK_MERCHANT_ID")
+      console.log(serviceId)
+      console.log(merchantId)
       const amount = dto.shopMonthlyFee ?? contract.shopMonthlyFee;
       click_payment_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&merchant_trans_id=${contract.id}`;
       data.click_payment_url = click_payment_url;
