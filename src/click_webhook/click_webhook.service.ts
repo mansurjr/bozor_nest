@@ -8,9 +8,10 @@ import * as crypto from 'crypto';
 export class ClickWebhookService {
   private readonly logger = new Logger(ClickWebhookService.name);
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   private getTenantConfig(tenantId: string) {
+    this.logger.log(`[CONFIG] Getting Click config for tenant: ${tenantId}`);
     const configs: Record<string, { serviceId: string; merchantId: string; secretKey: string }> = {
       rizq_baraka: { serviceId: '84321', merchantId: '46942', secretKey: 'p1oJkGcWDlLW8a4' },
       muzaffar_savdo: { serviceId: '84319', merchantId: '46941', secretKey: '2vzlHCCdCiPxe' },
@@ -21,13 +22,20 @@ export class ClickWebhookService {
     };
 
     const config = configs[tenantId];
-    if (!config) throw new Error(`Click config not found for tenant: ${tenantId}`);
+    if (!config) {
+      this.logger.error(`[CONFIG] No config found for tenant: ${tenantId}`);
+      throw new Error(`Click config not found for tenant: ${tenantId}`);
+    }
+    this.logger.log(`[CONFIG] Loaded config for tenant: ${tenantId}`);
     return config;
   }
 
   private verifySignature(params: ClickDataDto, secretKey: string) {
-    const hash = this.generateSignature(params, secretKey);
-    return hash === params.sign_string;
+    const generated = this.generateSignature(params, secretKey);
+    const isValid = generated === params.sign_string;
+    this.logger.log(`[SIGNATURE] Verification: ${isValid ? 'VALID' : 'INVALID'}`);
+    if (!isValid) this.logger.warn(`[SIGNATURE] Expected: ${generated}, Got: ${params.sign_string}`);
+    return isValid;
   }
 
   private generateSignature(params: any, secretKey: string) {
@@ -41,22 +49,25 @@ export class ClickWebhookService {
       params.action +
       params.sign_time;
 
-    return crypto.createHash('md5').update(signString).digest('hex');
+    const hash = crypto.createHash('md5').update(signString).digest('hex');
+    this.logger.debug(`[SIGNATURE] Generated: ${hash} from: ${signString}`);
+    return hash;
   }
-
 
   async handlePrepare(clickData: ClickDataDto) {
     const { click_trans_id, service_id, merchant_trans_id, amount, action, sign_time } = clickData;
+    this.logger.log(`[PREPARE] Started. MerchantTransId: ${merchant_trans_id}, Amount: ${amount}`);
 
     try {
       const tenantId = process.env.TENANT_ID!;
       const config = this.getTenantConfig(tenantId);
 
       if (!this.verifySignature(clickData, config.secretKey)) {
+        this.logger.warn(`[PREPARE] Invalid signature for MerchantTransId: ${merchant_trans_id}`);
         return { click_trans_id, merchant_trans_id, error: -1, error_note: 'SIGN CHECK FAILED' };
       }
 
-
+      this.logger.log(`[PREPARE] Looking for transaction...`);
       let transaction = await this.prisma.transaction.findFirst({
         where: { transactionId: merchant_trans_id, status: 'PENDING' },
       });
@@ -64,13 +75,13 @@ export class ClickWebhookService {
       let isDaily = false;
 
       if (!transaction) {
+        this.logger.log(`[PREPARE] Transaction not found, checking attendance ID: ${merchant_trans_id}`);
         const attendanceId = Number(merchant_trans_id);
-        const attendance = await this.prisma.attendance.findUnique({
-          where: { id: attendanceId },
-        });
+        const attendance = await this.prisma.attendance.findUnique({ where: { id: attendanceId } });
 
         if (attendance) {
           isDaily = true;
+          this.logger.log(`[PREPARE] Attendance found, creating daily transaction...`);
 
           const todayStart = new Date();
           todayStart.setHours(0, 0, 0, 0);
@@ -86,14 +97,9 @@ export class ClickWebhookService {
           });
 
           if (existingDailyPayment) {
-            return {
-              click_trans_id,
-              merchant_trans_id,
-              error: -5,
-              error_note: 'Already paid today',
-            };
+            this.logger.warn(`[PREPARE] Already paid for today. Attendance ID: ${attendance.id}`);
+            return { click_trans_id, merchant_trans_id, error: -5, error_note: 'Already paid today' };
           }
-
 
           transaction = await this.prisma.transaction.create({
             data: {
@@ -104,19 +110,17 @@ export class ClickWebhookService {
               attendance: { connect: { id: attendance.id } },
             },
           });
-        } else {
 
+          this.logger.log(`[PREPARE] Created daily transaction: ${transaction.id}`);
+        } else {
+          this.logger.log(`[PREPARE] No attendance found, checking regular transaction...`);
           transaction = await this.prisma.transaction.findFirst({
             where: { transactionId: merchant_trans_id },
           });
 
           if (transaction && transaction.status === 'PAID') {
-            return {
-              click_trans_id,
-              merchant_trans_id,
-              error: -5,
-              error_note: 'Already paid this month',
-            };
+            this.logger.warn(`[PREPARE] Already paid transaction: ${merchant_trans_id}`);
+            return { click_trans_id, merchant_trans_id, error: -5, error_note: 'Already paid this month' };
           }
 
           if (!transaction) {
@@ -128,20 +132,25 @@ export class ClickWebhookService {
                 paymentMethod: 'CLICK',
               },
             });
+            this.logger.log(`[PREPARE] Created new transaction: ${transaction.id}`);
           }
         }
       }
 
       if (Number(amount) !== Number(transaction.amount.toString())) {
+        this.logger.warn(`[PREPARE] Amount mismatch: expected ${transaction.amount}, got ${amount}`);
         return { click_trans_id, merchant_trans_id, error: -2, error_note: 'Incorrect amount' };
       }
-
 
       const existingClick = await this.prisma.clickTransaction.findUnique({
         where: { clickTransId: click_trans_id },
       });
-      if (existingClick) return { click_trans_id, merchant_trans_id, error: -4, error_note: 'Duplicate transaction' };
+      if (existingClick) {
+        this.logger.warn(`[PREPARE] Duplicate Click transaction: ${click_trans_id}`);
+        return { click_trans_id, merchant_trans_id, error: -4, error_note: 'Duplicate transaction' };
+      }
 
+      this.logger.log(`[PREPARE] Creating Click transaction record...`);
       const clickTransaction = await this.prisma.clickTransaction.create({
         data: {
           clickTransId: click_trans_id,
@@ -160,6 +169,7 @@ export class ClickWebhookService {
         config.secretKey,
       );
 
+      this.logger.log(`[PREPARE] Success. MerchantPrepareId: ${merchant_prepare_id}`);
       return {
         click_trans_id,
         merchant_trans_id,
@@ -169,19 +179,23 @@ export class ClickWebhookService {
         sign_string: responseSignature,
       };
     } catch (err) {
-      this.logger.error('PREPARE failed', err);
+      this.logger.error('[PREPARE] System error', err);
       return { click_trans_id, merchant_trans_id, error: -8, error_note: 'System error' };
     }
   }
 
   async handleComplete(clickData: ClickDataDto) {
-    const { click_trans_id, service_id, merchant_trans_id, merchant_prepare_id, amount, action, sign_time, error } = clickData;
+    const { click_trans_id, service_id, merchant_trans_id, merchant_prepare_id, amount, action, sign_time, error } =
+      clickData;
+
+    this.logger.log(`[COMPLETE] Started. MerchantTransId: ${merchant_trans_id}, PrepareId: ${merchant_prepare_id}`);
 
     try {
       const tenantId = process.env.TENANT_ID!;
       const config = this.getTenantConfig(tenantId);
 
       if (!this.verifySignature(clickData, config.secretKey)) {
+        this.logger.warn(`[COMPLETE] Invalid signature for MerchantTransId: ${merchant_trans_id}`);
         return { click_trans_id, merchant_trans_id, merchant_prepare_id, error: -1, error_note: 'SIGN CHECK FAILED' };
       }
 
@@ -190,14 +204,17 @@ export class ClickWebhookService {
       });
 
       if (!prepareTransaction) {
+        this.logger.warn(`[COMPLETE] Prepare transaction not found: ${merchant_prepare_id}`);
         return { click_trans_id, merchant_trans_id, merchant_prepare_id, error: -6, error_note: 'Transaction not found' };
       }
 
       if (prepareTransaction.status === 1) {
+        this.logger.warn(`[COMPLETE] Transaction already marked as PAID`);
         return { click_trans_id, merchant_trans_id, merchant_prepare_id, error: -4, error_note: 'Already paid' };
       }
 
       if (error && error < 0) {
+        this.logger.warn(`[COMPLETE] Payment cancelled by Click. Error code: ${error}`);
         await this.prisma.clickTransaction.update({
           where: { id: Number(merchant_prepare_id) },
           data: { status: -1, error, errorNote: 'Payment cancelled' },
@@ -205,24 +222,27 @@ export class ClickWebhookService {
         return { click_trans_id, merchant_trans_id, merchant_prepare_id, error: 0, error_note: 'Success' };
       }
 
+      this.logger.log(`[COMPLETE] Fetching merchant transaction...`);
       let transaction = await this.prisma.transaction.findUnique({
         where: { transactionId: merchant_trans_id },
       });
 
       if (!transaction) {
-
         const attendanceId = Number(merchant_trans_id);
+        this.logger.log(`[COMPLETE] No transaction found, updating attendance ID: ${attendanceId} to PAID`);
         await this.prisma.attendance.update({
           where: { id: attendanceId },
           data: { status: 'PAID' },
         });
       } else {
-
+        this.logger.log(`[COMPLETE] Updating transaction ID: ${transaction.id} to PAID`);
         transaction = await this.prisma.transaction.update({
           where: { id: transaction.id },
           data: { status: 'PAID', paymentMethod: 'CLICK' },
         });
+
         if (transaction.attendanceId) {
+          this.logger.log(`[COMPLETE] Updating attendance ID: ${transaction.attendanceId} to PAID`);
           await this.prisma.attendance.update({
             where: { id: transaction.attendanceId },
             data: { status: 'PAID' },
@@ -240,6 +260,7 @@ export class ClickWebhookService {
         config.secretKey,
       );
 
+      this.logger.log(`[COMPLETE] Success. Transaction finalized.`);
       return {
         click_trans_id,
         merchant_trans_id,
@@ -249,7 +270,7 @@ export class ClickWebhookService {
         sign_string: responseSignature,
       };
     } catch (err) {
-      this.logger.error('COMPLETE failed', err);
+      this.logger.error('[COMPLETE] System error', err);
       return { click_trans_id, merchant_trans_id, merchant_prepare_id, error: -8, error_note: 'System error' };
     }
   }
