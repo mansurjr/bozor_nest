@@ -92,7 +92,7 @@ export class ContractService {
     console.log(serviceId)
     console.log(merchantId)
     const amount = dto.shopMonthlyFee ?? created.shopMonthlyFee?.toString() ?? "";
-    const click_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&merchant_trans_id=${created.store.storeNumber}`;
+    const click_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${created.store.storeNumber}`;
 
     await this.prisma.store.update({
       where: { id: store.id },
@@ -180,7 +180,7 @@ export class ContractService {
       console.log(serviceId)
       console.log(merchantId)
       const amount = dto.shopMonthlyFee ?? contract.shopMonthlyFee;
-      click_payment_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&merchant_trans_id=${contract.id}`;
+      click_payment_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${contract.id}`;
       data.click_payment_url = click_payment_url;
 
       await this.prisma.store.update({
