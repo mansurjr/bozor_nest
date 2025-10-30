@@ -87,7 +87,7 @@ export class StallService {
       });
       if (!saleType) throw new NotFoundException(`SaleType with id ${dto.saleTypeId} not found`);
       dailyFee = new Prisma.Decimal(saleType.tax);
-      click_payment_url = `https://my.click.uz/services/pay?service_id=${process.env.serviceId}&merchant_id=${process.env.merchantId!}&amount=${dailyFee}&${id}`
+      click_payment_url = `https://my.click.uz/services/pay?service_id=${this.config.get("serviceId")}&merchant_id=${this.config.get("merchantId")}&amount=${dailyFee}&${stall.stallNumber}`
     }
 
 
