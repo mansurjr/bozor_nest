@@ -7,7 +7,10 @@ import { ConfigService } from "@nestjs/config";
 
 @Injectable()
 export class ContractService {
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService
+  ) {}
 
   private isOverlap(
     aStart?: Date | null,
@@ -36,8 +39,10 @@ export class ContractService {
       },
       select: { id: true, issueDate: true, expiryDate: true, isActive: true },
     });
+
     const newStart = issueDate ? new Date(issueDate) : null;
     const newEnd = expiryDate ? new Date(expiryDate) : null;
+
     for (const c of existing) {
       if (this.isOverlap(c.issueDate, c.expiryDate, newStart, newEnd)) {
         throw new Error("Store is already occupied for the selected period");
@@ -82,9 +87,9 @@ export class ContractService {
       },
     });
 
-    const serviceId = this.config.get("serviceId");
-    const merchantId = this.config.get("merchantId");
-    const amount = dto.shopMonthlyFee ?? created.shopMonthlyFee?.toString() ?? '';
+    const serviceId = this.config.get<string>("CLICK_SERVICE_ID") || this.config.get<string>("serviceId");
+    const merchantId = this.config.get<string>("CLICK_MERCHANT_ID") || this.config.get<string>("merchantId");
+    const amount = dto.shopMonthlyFee ?? created.shopMonthlyFee?.toString() ?? "";
     const click_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&merchant_trans_id=${created.store.storeNumber}`;
 
     await this.prisma.store.update({
@@ -113,7 +118,6 @@ export class ContractService {
     return { total, page, limit, data };
   }
 
-
   async findOne(id: number) {
     const contract = await this.prisma.contract.findUnique({
       where: { id },
@@ -139,6 +143,7 @@ export class ContractService {
       data.shopMonthlyFee = new Prisma.Decimal(dto.shopMonthlyFee);
 
     let click_payment_url = contract.store.click_payment_url;
+
     if (
       dto.storeId !== undefined ||
       dto.issueDate !== undefined ||
@@ -149,6 +154,7 @@ export class ContractService {
       const newStart = dto.issueDate ?? contract.issueDate ?? undefined;
       const newEnd = dto.expiryDate ?? contract.expiryDate ?? undefined;
       const active = dto.isActive ?? contract.isActive;
+
       if (active) {
         await this.ensureStoreNotOccupied(
           targetStoreId,
@@ -158,6 +164,7 @@ export class ContractService {
         );
       }
     }
+
     if (dto.shopMonthlyFee !== undefined || dto.storeId !== undefined) {
       const storeId = dto.storeId ?? contract.storeId;
       const store = await this.prisma.store.findUnique({
@@ -166,8 +173,8 @@ export class ContractService {
       if (!store)
         throw new NotFoundException(`Store with id ${storeId} not found`);
 
-      const serviceId = process.env.CLICK_SERVICE_ID || process.env.serviceId;
-      const merchantId = process.env.CLICK_MERCHANT_ID || process.env.merchantId;
+      const serviceId = this.config.get<string>("CLICK_SERVICE_ID") || this.config.get<string>("serviceId");
+      const merchantId = this.config.get<string>("CLICK_MERCHANT_ID") || this.config.get<string>("merchantId");
       const amount = dto.shopMonthlyFee ?? contract.shopMonthlyFee;
       click_payment_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&merchant_trans_id=${contract.id}`;
       data.click_payment_url = click_payment_url;
@@ -192,6 +199,9 @@ export class ContractService {
 
   async remove(id: number) {
     await this.findOne(id);
-    return this.prisma.contract.update({ where: { id }, data: { isActive: false } })
+    return this.prisma.contract.update({
+      where: { id },
+      data: { isActive: false },
+    });
   }
 }
