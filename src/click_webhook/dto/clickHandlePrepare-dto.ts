@@ -45,4 +45,9 @@ export class ClickDataDto {
   @IsOptional()
   @IsString()
   sign_string?: string;
+
+
+  @IsOptional()
+  @IsString()
+  error_note?: string;
 }
