@@ -1,17 +1,22 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClickDataDto } from './dto/clickHandlePrepare-dto';
 import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class ClickWebhookService {
   private readonly logger = new Logger(ClickWebhookService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly configService: ConfigService) { }
 
+  /** ───────────────────────────────────────────────────────────────
+   *  Tenant-based config loader
+   *  ─────────────────────────────────────────────────────────────── */
   private getTenantConfig(tenantId: string) {
     this.logger.log(`[CONFIG] Getting Click config for tenant: ${tenantId}`);
+
     const configs: Record<string, { serviceId: string; merchantId: string; secretKey: string }> = {
       rizq_baraka: { serviceId: '84321', merchantId: '46942', secretKey: 'p1oJkGcWDlLW8a4' },
       muzaffar_savdo: { serviceId: '84319', merchantId: '46941', secretKey: '2vzlHCCdCiPxe' },
@@ -26,15 +31,22 @@ export class ClickWebhookService {
       this.logger.error(`[CONFIG] No config found for tenant: ${tenantId}`);
       throw new Error(`Click config not found for tenant: ${tenantId}`);
     }
+
     this.logger.log(`[CONFIG] Loaded config for tenant: ${tenantId}`);
     return config;
   }
 
+  /** ───────────────────────────────────────────────────────────────
+   *  Signature verification
+   *  ─────────────────────────────────────────────────────────────── */
   private verifySignature(params: ClickDataDto, secretKey: string) {
-    const generated = this.generateSignature(params, secretKey);
-    const isValid = generated === params.sign_string;
+    const generated = this.generateSignature(params, secretKey).toLowerCase();
+    const isValid = generated === params.sign_string!.toLowerCase();
+
     this.logger.log(`[SIGNATURE] Verification: ${isValid ? 'VALID' : 'INVALID'}`);
-    if (!isValid) this.logger.warn(`[SIGNATURE] Expected: ${generated}, Got: ${params.sign_string}`);
+    if (!isValid)
+      this.logger.warn(`[SIGNATURE] Expected: ${generated}, Got: ${params.sign_string}`);
+
     return isValid;
   }
 
@@ -54,12 +66,16 @@ export class ClickWebhookService {
     return hash;
   }
 
+  /** ───────────────────────────────────────────────────────────────
+   *  HANDLE PREPARE
+   *  ─────────────────────────────────────────────────────────────── */
   async handlePrepare(clickData: ClickDataDto) {
     const { click_trans_id, service_id, merchant_trans_id, amount, action, sign_time } = clickData;
     this.logger.log(`[PREPARE] Started. MerchantTransId: ${merchant_trans_id}, Amount: ${amount}`);
 
     try {
-      const tenantId = process.env.TENANT_ID!;
+      const tenantId = this.configService.get("TENANT_ID")
+      if (!tenantId) throw new Error('TENANT_ID not configured');
       const config = this.getTenantConfig(tenantId);
 
       if (!this.verifySignature(clickData, config.secretKey)) {
@@ -67,21 +83,20 @@ export class ClickWebhookService {
         return { click_trans_id, merchant_trans_id, error: -1, error_note: 'SIGN CHECK FAILED' };
       }
 
-      this.logger.log(`[PREPARE] Looking for transaction...`);
       let transaction = await this.prisma.transaction.findFirst({
         where: { transactionId: merchant_trans_id, status: 'PENDING' },
       });
 
       let isDaily = false;
 
+      /** Check if related to attendance (daily) */
       if (!transaction) {
-        this.logger.log(`[PREPARE] Transaction not found, checking attendance ID: ${merchant_trans_id}`);
         const attendanceId = Number(merchant_trans_id);
         const attendance = await this.prisma.attendance.findUnique({ where: { id: attendanceId } });
 
         if (attendance) {
           isDaily = true;
-          this.logger.log(`[PREPARE] Attendance found, creating daily transaction...`);
+          this.logger.log(`[PREPARE] Attendance found. Creating daily transaction...`);
 
           const todayStart = new Date();
           todayStart.setHours(0, 0, 0, 0);
@@ -97,7 +112,7 @@ export class ClickWebhookService {
           });
 
           if (existingDailyPayment) {
-            this.logger.warn(`[PREPARE] Already paid for today. Attendance ID: ${attendance.id}`);
+            this.logger.warn(`[PREPARE] Already paid today for attendance ID: ${attendance.id}`);
             return { click_trans_id, merchant_trans_id, error: -5, error_note: 'Already paid today' };
           }
 
@@ -113,12 +128,12 @@ export class ClickWebhookService {
 
           this.logger.log(`[PREPARE] Created daily transaction: ${transaction.id}`);
         } else {
-          this.logger.log(`[PREPARE] No attendance found, checking regular transaction...`);
+          /** Regular (monthly) transaction */
           transaction = await this.prisma.transaction.findFirst({
             where: { transactionId: merchant_trans_id },
           });
 
-          if (transaction && transaction.status === 'PAID') {
+          if (transaction?.status === 'PAID') {
             this.logger.warn(`[PREPARE] Already paid transaction: ${merchant_trans_id}`);
             return { click_trans_id, merchant_trans_id, error: -5, error_note: 'Already paid this month' };
           }
@@ -137,11 +152,13 @@ export class ClickWebhookService {
         }
       }
 
+      /** Amount mismatch check */
       if (Number(amount) !== Number(transaction.amount.toString())) {
         this.logger.warn(`[PREPARE] Amount mismatch: expected ${transaction.amount}, got ${amount}`);
         return { click_trans_id, merchant_trans_id, error: -2, error_note: 'Incorrect amount' };
       }
 
+      /** Check for duplicate Click transaction */
       const existingClick = await this.prisma.clickTransaction.findUnique({
         where: { clickTransId: click_trans_id },
       });
@@ -150,7 +167,7 @@ export class ClickWebhookService {
         return { click_trans_id, merchant_trans_id, error: -4, error_note: 'Duplicate transaction' };
       }
 
-      this.logger.log(`[PREPARE] Creating Click transaction record...`);
+      /** Create Click transaction */
       const clickTransaction = await this.prisma.clickTransaction.create({
         data: {
           clickTransId: click_trans_id,
@@ -184,6 +201,9 @@ export class ClickWebhookService {
     }
   }
 
+  /** ───────────────────────────────────────────────────────────────
+   *  HANDLE COMPLETE
+   *  ─────────────────────────────────────────────────────────────── */
   async handleComplete(clickData: ClickDataDto) {
     const { click_trans_id, service_id, merchant_trans_id, merchant_prepare_id, amount, action, sign_time, error } =
       clickData;
@@ -191,7 +211,8 @@ export class ClickWebhookService {
     this.logger.log(`[COMPLETE] Started. MerchantTransId: ${merchant_trans_id}, PrepareId: ${merchant_prepare_id}`);
 
     try {
-      const tenantId = process.env.TENANT_ID!;
+      const tenantId = this.configService.get("TENANT_ID");
+      if (!tenantId) throw new Error('TENANT_ID not configured');
       const config = this.getTenantConfig(tenantId);
 
       if (!this.verifySignature(clickData, config.secretKey)) {
@@ -222,27 +243,27 @@ export class ClickWebhookService {
         return { click_trans_id, merchant_trans_id, merchant_prepare_id, error: 0, error_note: 'Success' };
       }
 
-      this.logger.log(`[COMPLETE] Fetching merchant transaction...`);
+      /** Fetch merchant transaction */
       let transaction = await this.prisma.transaction.findUnique({
         where: { transactionId: merchant_trans_id },
       });
 
       if (!transaction) {
         const attendanceId = Number(merchant_trans_id);
-        this.logger.log(`[COMPLETE] No transaction found, updating attendance ID: ${attendanceId} to PAID`);
+        this.logger.log(`[COMPLETE] No transaction found, marking attendance ID ${attendanceId} as PAID`);
         await this.prisma.attendance.update({
           where: { id: attendanceId },
           data: { status: 'PAID' },
         });
       } else {
-        this.logger.log(`[COMPLETE] Updating transaction ID: ${transaction.id} to PAID`);
+        this.logger.log(`[COMPLETE] Updating transaction ID ${transaction.id} to PAID`);
         transaction = await this.prisma.transaction.update({
           where: { id: transaction.id },
           data: { status: 'PAID', paymentMethod: 'CLICK' },
         });
 
         if (transaction.attendanceId) {
-          this.logger.log(`[COMPLETE] Updating attendance ID: ${transaction.attendanceId} to PAID`);
+          this.logger.log(`[COMPLETE] Updating attendance ID ${transaction.attendanceId} to PAID`);
           await this.prisma.attendance.update({
             where: { id: transaction.attendanceId },
             data: { status: 'PAID' },
