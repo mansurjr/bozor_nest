@@ -11,14 +11,14 @@ export class ClickWebhookController {
   @Post('prepare')
   @ApiOperation({ summary: 'Prepare Click transaction' })
   @ApiResponse({ status: 200 })
-  async prepare(@Body() clickData: ClickDataDto) {
+  async prepare(@Body() clickData) {
     return this.clickService.handlePrepare(clickData);
   }
 
   @Post('complete')
   @ApiOperation({ summary: 'Complete Click transaction' })
   @ApiResponse({ status: 200 })
-  async complete(@Body() clickData: ClickDataDto) {
+  async complete(@Body() clickData) {
     return this.clickService.handleComplete(clickData);
   }
 }

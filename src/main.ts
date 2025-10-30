@@ -27,6 +27,7 @@ async function bootstrap() {
       stopAtFirstError: false,
       skipMissingProperties: false,
       exceptionFactory: (errors) => {
+        console.log(errors)
         const formattedErrors = errors.map((err) => ({
           field: err.property,
           errors: Object.values(err.constraints || {}),

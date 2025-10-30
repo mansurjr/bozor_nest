@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ClickDataDto } from './dto/clickHandlePrepare-dto';
 import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
@@ -52,7 +51,7 @@ export class ClickWebhookService {
     return crypto.createHash('md5').update(signString).digest('hex');
   }
 
-  private verifySignature(params: ClickDataDto, secretKey: string): boolean {
+  private verifySignature(params: any, secretKey: string): boolean {
     const expected = this.generateSignature(params, secretKey).toLowerCase();
     const provided = (params.sign_string || '').toLowerCase();
     const ok = expected === provided;
@@ -65,7 +64,7 @@ export class ClickWebhookService {
    * Returns shape:
    * { click_trans_id, merchant_trans_id, merchant_prepare_id, error, error_note, sign_string? }
    */
-  async handlePrepare(clickData: ClickDataDto) {
+  async handlePrepare(clickData: any) {
     const { click_trans_id, service_id, merchant_trans_id, click_paydoc_id, amount, action, sign_time } = clickData;
 
     this.logger.log(`[PREPARE] received click_trans=${click_trans_id} merchant_trans=${merchant_trans_id} amount=${amount}`);
@@ -176,7 +175,7 @@ export class ClickWebhookService {
    * Returns shape:
    * { click_trans_id, merchant_trans_id, merchant_confirm_id, error, error_note, sign_string? }
    */
-  async handleComplete(clickData: ClickDataDto) {
+  async handleComplete(clickData: any) {
     const {
       click_trans_id,
       service_id,
