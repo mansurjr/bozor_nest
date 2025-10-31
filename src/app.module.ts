@@ -15,6 +15,7 @@ import { TransactionModule } from "./transaction/transaction.module";
 import { ClickWebhookModule } from "./click_webhook/click_webhook.module";
 import { StatiscticsModule } from "./statisctics/statisctics.module";
 import { PublicModule } from './public/public.module';
+import { PaymeModule } from './payme/payme.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { PublicModule } from './public/public.module';
     ClickWebhookModule,
     StatiscticsModule,
     PublicModule,
+    PaymeModule,
   ],
   providers: [AppService],
   exports: [ConfigModule],

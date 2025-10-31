@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async create(dto: CreateAttendanceDto) {
     // Validate Stall exists
@@ -96,13 +96,15 @@ export class AttendanceService {
     return this.prisma.attendance.delete({ where: { id } });
   }
 
-  async getPayUrl(id: number) {
+  async getPayUrl(id: number, type = "click") {
     const attendance = await this.findOne(id);
-    const amount = attendance.amount ? attendance.amount.toString() : '0';
-    const serviceId = process.env.CLICK_SERVICE_ID || process.env.serviceId;
-    const merchantId = process.env.CLICK_MERCHANT_ID || process.env.merchantId;
-    const merchant_trans_id = String(attendance.id);
-    const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${merchant_trans_id}`;
-    return { url };
+    if (type == "click") {
+      const amount = attendance.amount ? attendance.amount.toString() : '0';
+      const serviceId = process.env.CLICK_SERVICE_ID || process.env.serviceId;
+      const merchantId = process.env.CLICK_MERCHANT_ID || process.env.merchantId;
+      const merchant_trans_id = String(attendance.id);
+      const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${merchant_trans_id}`;
+      return { url };
+    }
   }
 }
