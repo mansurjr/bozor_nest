@@ -105,13 +105,13 @@ export class ClickWebhookService {
           store.contracts?.find((c: any) => c.isActive) ??
           store.contracts?.[0];
 
-        if (!contract) {
+        if (!contract || !contract.isActive) {
 
           return {
             click_trans_id,
             merchant_trans_id,
             error: -6,
-            error_note: 'Store has no contract',
+            error_note: 'Store has no contract or there is no active contract for this store',
           };
         }
 
