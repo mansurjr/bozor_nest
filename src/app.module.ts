@@ -14,6 +14,7 @@ import { ContractModule } from "./contract/contract.module";
 import { TransactionModule } from "./transaction/transaction.module";
 import { ClickWebhookModule } from "./click_webhook/click_webhook.module";
 import { StatiscticsModule } from "./statisctics/statisctics.module";
+import { PublicModule } from './public/public.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { StatiscticsModule } from "./statisctics/statisctics.module";
     TransactionModule,
     ClickWebhookModule,
     StatiscticsModule,
+    PublicModule,
   ],
   providers: [AppService],
   exports: [ConfigModule],

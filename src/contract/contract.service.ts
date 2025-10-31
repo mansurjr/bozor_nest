@@ -102,7 +102,7 @@ export class ContractService {
     return created;
   }
 
-  async findAll(page = 1, limit = 10, isActive?: boolean) {
+  async findAll(page = 1, limit = 10, isActive?: boolean, search?: string) {
     const where: Prisma.ContractWhereInput = {};
 
     if (isActive !== undefined) {
