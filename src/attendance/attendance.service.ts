@@ -3,10 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 import { Prisma } from '@prisma/client';
+import base64 from "base-64";
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) { }
 
   async create(dto: CreateAttendanceDto) {
     // Validate Stall exists
@@ -98,13 +100,16 @@ export class AttendanceService {
 
   async getPayUrl(id: number, type = "click") {
     const attendance = await this.findOne(id);
+    let url = "";
     if (type == "click") {
       const amount = attendance.amount ? attendance.amount.toString() : '0';
       const serviceId = process.env.CLICK_SERVICE_ID || process.env.serviceId;
       const merchantId = process.env.CLICK_MERCHANT_ID || process.env.merchantId;
       const merchant_trans_id = String(attendance.id);
-      const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${merchant_trans_id}`;
-      return { url };
+      url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${merchant_trans_id}`;
+    } else {
+      url = `https://checkout.paycom.uz/m=${base64.encode(this.config.get("PAYMENT_MERCHANT_ID")!)};acc.id=1;acc.attendanceId=${attendance.id};a=${attendance.amount ? attendance.amount.toString() : '0'};c=${this.config.get("MY_DOMAIN")}`
     }
+    return { url };
   }
 }

@@ -5,7 +5,8 @@ export class CheckPerformTransactionDto {
   params: {
     amount: number;
     account: {
-      attenadanceId?: number;
+      attendanceId?: number;
+      contractId?: string;
     };
   };
 }

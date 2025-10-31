@@ -98,12 +98,18 @@ export class ClickWebhookService {
         where: { storeNumber: merchant_trans_id },
         include: { contracts: true },
       });
+      console.log(store)
+      console.log(await this.prisma.store.findFirst({
+        where: { storeNumber: merchant_trans_id },
+        include: { contracts: true },
+      }))
 
       if (store) {
 
         const contract =
           store.contracts?.find((c: any) => c.isActive) ??
           store.contracts?.[0];
+        console.log(contract)
 
         if (!contract || !contract.isActive) {
 

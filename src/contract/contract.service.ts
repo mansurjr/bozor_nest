@@ -4,6 +4,7 @@ import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
 import { Prisma } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
+import base64 from "base-64";
 
 @Injectable()
 export class ContractService {
@@ -93,10 +94,15 @@ export class ContractService {
     console.log(merchantId)
     const amount = dto.shopMonthlyFee ?? created.shopMonthlyFee?.toString() ?? "";
     const click_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${created.store.storeNumber}`;
+    let PAYMENT_MERCHANT_IDurl = ""
+    if (this.config.get("TENANT_ID") === "ipak_yuli") {
+      PAYMENT_MERCHANT_IDurl = `https://checkout.paycom.uz/m=${base64.encode(this.config.get("PAYMENT_MERCHANT_ID")!)};acc.id=1;acc.contractId=${created.store.storeNumber};a=${amount};c=${this.config.get("MY_DOMAIN")}`
+
+    }
 
     await this.prisma.store.update({
       where: { id: store.id },
-      data: { click_payment_url: click_url },
+      data: { click_payment_url: click_url, payme_payment_url: PAYMENT_MERCHANT_IDurl },
     });
 
     return created;
