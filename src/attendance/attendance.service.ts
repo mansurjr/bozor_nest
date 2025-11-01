@@ -99,10 +99,9 @@ export class AttendanceService {
   }
   async getPayUrl(id: number, type: "click" | "payme" = "click") {
     const attendance = await this.findOne(id);
-    if (!attendance) throw new NotFoundException("Attendance not found");
+    const amount = attendance.amount ? attendance.amount.toString() : "0";
 
     let url = "";
-    const amount = attendance.amount ? attendance.amount.toString() : "0";
 
     if (type === "click") {
       // 🔹 CLICK payment link
@@ -112,21 +111,19 @@ export class AttendanceService {
         this.config.get("CLICK_MERCHANT_ID") || process.env.CLICK_MERCHANT_ID;
 
       url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${attendance.id}`;
-    } else if (type === "payme") {
-      // 🔹 PAYME payment link
+    }
+
+    if (type === "payme") {
       const merchantId =
-        this.config.get("PAYMENT_MERCHANT_ID") ||
-        process.env.PAYMENT_MERCHANT_ID;
+        this.config.get("PAYMENT_MERCHANT_ID") || process.env.PAYMENT_MERCHANT_ID;
       const domain =
         this.config.get("MY_DOMAIN") || process.env.MY_DOMAIN || "myrent.uz";
 
-      // Full parameter string (to be base64 encoded)
-      const params = `m=${merchantId};acc.id=1;acc.attendanceId=${attendance.id};a=${amount};c=${domain}`;
+      const params = `m=${merchantId};ac.user_id=1;ac.attendanceId=${attendance.id};a=${amount};c=${domain}`;
+
       const encodedParams = base64.encode(params);
 
       url = `https://checkout.paycom.uz/${encodedParams}`;
-    } else {
-      throw new NotFoundException("Invalid payment type");
     }
 
     return { url };
