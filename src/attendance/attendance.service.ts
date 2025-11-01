@@ -97,19 +97,38 @@ export class AttendanceService {
     }
     return this.prisma.attendance.delete({ where: { id } });
   }
-
-  async getPayUrl(id: number, type = "click") {
+  async getPayUrl(id: number, type: "click" | "payme" = "click") {
     const attendance = await this.findOne(id);
+    if (!attendance) throw new NotFoundException("Attendance not found");
+
     let url = "";
-    if (type == "click") {
-      const amount = attendance.amount ? attendance.amount.toString() : '0';
-      const serviceId = process.env.CLICK_SERVICE_ID || process.env.serviceId;
-      const merchantId = process.env.CLICK_MERCHANT_ID || process.env.merchantId;
-      const merchant_trans_id = String(attendance.id);
-      url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${merchant_trans_id}`;
+    const amount = attendance.amount ? attendance.amount.toString() : "0";
+
+    if (type === "click") {
+      // 🔹 CLICK payment link
+      const serviceId =
+        this.config.get("CLICK_SERVICE_ID") || process.env.CLICK_SERVICE_ID;
+      const merchantId =
+        this.config.get("CLICK_MERCHANT_ID") || process.env.CLICK_MERCHANT_ID;
+
+      url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${attendance.id}`;
+    } else if (type === "payme") {
+      // 🔹 PAYME payment link
+      const merchantId =
+        this.config.get("PAYMENT_MERCHANT_ID") ||
+        process.env.PAYMENT_MERCHANT_ID;
+      const domain =
+        this.config.get("MY_DOMAIN") || process.env.MY_DOMAIN || "myrent.uz";
+
+      // Full parameter string (to be base64 encoded)
+      const params = `m=${merchantId};acc.id=1;acc.attendanceId=${attendance.id};a=${amount};c=${domain}`;
+      const encodedParams = base64.encode(params);
+
+      url = `https://checkout.paycom.uz/${encodedParams}`;
     } else {
-      url = `https://checkout.paycom.uz/m=${base64.encode(this.config.get("PAYMENT_MERCHANT_ID")!)};acc.id=1;acc.attendanceId=${attendance.id};a=${attendance.amount ? attendance.amount.toString() : '0'};c=${this.config.get("MY_DOMAIN")}`
+      throw new NotFoundException("Invalid payment type");
     }
+
     return { url };
   }
 }
