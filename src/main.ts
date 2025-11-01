@@ -12,7 +12,7 @@ async function bootstrap() {
   app.setGlobalPrefix(globalPrefix);
 
   app.enableCors({
-    origin: ["https://myrent-front-2ytj097cp-barkamolvaliy-2769s-projects.vercel.app", "https://myrent-front.vercel.app", process.env.MY_DOMAIN!],
+    origin: ["https://myrent-front-2ytj097cp-barkamolvaliy-2769s-projects.vercel.app", "https://myrent-front.vercel.app", process.env.MY_DOMAIN!, "http://localhost:5173"],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     allowHeaders: "*",
     credentials: true,

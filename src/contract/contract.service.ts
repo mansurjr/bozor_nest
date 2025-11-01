@@ -13,6 +13,100 @@ export class ContractService {
     private readonly config: ConfigService
   ) { }
 
+  private normalizeAmount(amount?: Prisma.Decimal | number | string | null) {
+    if (amount === null || amount === undefined) return null;
+    if (amount instanceof Prisma.Decimal) return amount.toString();
+    if (typeof amount === "number" && !Number.isNaN(amount)) return amount.toString();
+    if (typeof amount === "string") {
+      const trimmed = amount.trim();
+      if (!trimmed) return null;
+      const parsed = Number(trimmed);
+      if (Number.isNaN(parsed)) return null;
+      return parsed.toString();
+    }
+    return null;
+  }
+
+  private buildClickPaymentUrl(amount: string | null, transactionParam: string | number) {
+    if (!amount) return null;
+
+    const serviceId = this.config.get<string>("CLICK_SERVICE_ID");
+    const merchantId = this.config.get<string>("CLICK_MERCHANT_ID");
+    if (!serviceId || !merchantId) return null;
+
+    return `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${transactionParam}`;
+  }
+
+  private buildPaymePaymentUrl(amount: string | null, contractReference: string | number) {
+    if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli") return null;
+
+    const merchantId = this.config.get<string>("PAYMENT_MERCHANT_ID");
+    if (!merchantId) return null;
+
+    const encodedMerchant = base64.encode(merchantId);
+    const domain = this.config.get<string>("MY_DOMAIN");
+    const domainPart = domain ? `;c=${domain}` : "";
+
+    return `https://checkout.paycom.uz/m=${encodedMerchant};acc.id=1;acc.contractId=${contractReference};a=${amount}${domainPart}`;
+  }
+
+  private async ensureStorePaymentLinks(contract: any) {
+    if (!contract?.store) return contract;
+
+    const amount = this.normalizeAmount(contract.shopMonthlyFee);
+    const storeNumber = contract.store.storeNumber ?? contract.storeId;
+
+    if (!amount || !storeNumber) return contract;
+
+    const needsClick = !contract.store.click_payment_url;
+    const needsPayme =
+      this.config.get<string>("TENANT_ID") === "ipak_yuli" &&
+      !contract.store.payme_payment_url;
+
+    if (!needsClick && !needsPayme) return contract;
+
+    const updateData: Record<string, string> = {};
+
+    if (needsClick) {
+      const clickUrl = this.buildClickPaymentUrl(amount, storeNumber);
+      if (clickUrl) updateData.click_payment_url = clickUrl;
+    }
+
+    if (needsPayme) {
+      const paymeUrl = this.buildPaymePaymentUrl(amount, storeNumber);
+      if (paymeUrl) updateData.payme_payment_url = paymeUrl;
+    }
+
+    if (Object.keys(updateData).length) {
+      const updatedStore = await this.prisma.store.update({
+        where: { id: contract.storeId },
+        data: updateData,
+      });
+      contract.store = updatedStore;
+    }
+
+    return contract;
+  }
+
+  private async syncStorePaymentLinks(storeId: number, storeNumber: string, amount: string | null) {
+    if (!amount || !storeNumber) return null;
+
+    const updateData: Record<string, string> = {};
+
+    const clickUrl = this.buildClickPaymentUrl(amount, storeNumber);
+    if (clickUrl) updateData.click_payment_url = clickUrl;
+
+    const paymeUrl = this.buildPaymePaymentUrl(amount, storeNumber);
+    if (paymeUrl) updateData.payme_payment_url = paymeUrl;
+
+    if (!Object.keys(updateData).length) return null;
+
+    return this.prisma.store.update({
+      where: { id: storeId },
+      data: updateData,
+    });
+  }
+
   private isOverlap(
     aStart?: Date | null,
     aEnd?: Date | null,
@@ -87,25 +181,22 @@ export class ContractService {
         transactions: true,
       },
     });
+    const normalizedAmount = this.normalizeAmount(
+      dto.shopMonthlyFee ?? created.shopMonthlyFee,
+    );
+    const storeNumber =
+      created.store?.storeNumber ?? store.storeNumber ?? String(created.storeId);
 
-    const serviceId = this.config.get<number>("CLICK_SERVICE_ID");
-    const merchantId = this.config.get<number>("CLICK_MERCHANT_ID")
-    console.log(serviceId)
-    console.log(merchantId)
-    const amount = dto.shopMonthlyFee ?? created.shopMonthlyFee?.toString() ?? "";
-    const click_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${created.store.storeNumber}`;
-    let PAYMENT_MERCHANT_IDurl = ""
-    if (this.config.get("TENANT_ID") === "ipak_yuli") {
-      PAYMENT_MERCHANT_IDurl = `https://checkout.paycom.uz/m=${base64.encode(this.config.get("PAYMENT_MERCHANT_ID")!)};acc.id=1;acc.contractId=${created.store.storeNumber};a=${amount};c=${this.config.get("MY_DOMAIN")}`
-
+    if (normalizedAmount && storeNumber) {
+      const updatedStore = await this.syncStorePaymentLinks(
+        store.id,
+        storeNumber,
+        normalizedAmount,
+      );
+      if (updatedStore) created.store = updatedStore as any;
     }
 
-    await this.prisma.store.update({
-      where: { id: store.id },
-      data: { click_payment_url: click_url, payme_payment_url: PAYMENT_MERCHANT_IDurl },
-    });
-
-    return created;
+    return this.ensureStorePaymentLinks(created);
   }
 
   async findAll(page = 1, limit = 10, isActive?: boolean, search?: string) {
@@ -150,7 +241,15 @@ export class ContractService {
     if (dto.shopMonthlyFee !== undefined)
       data.shopMonthlyFee = new Prisma.Decimal(dto.shopMonthlyFee);
 
-    let click_payment_url = contract.store.click_payment_url;
+    if (dto.ownerId !== undefined) {
+      const owner = await this.prisma.owner.findUnique({
+        where: { id: dto.ownerId },
+      });
+      if (!owner)
+        throw new NotFoundException(`Owner with id ${dto.ownerId} not found`);
+      data.owner = { connect: { id: dto.ownerId } };
+      delete data.ownerId;
+    }
 
     if (
       dto.storeId !== undefined ||
@@ -173,6 +272,7 @@ export class ContractService {
       }
     }
 
+    let syncedStore: any = null;
     if (dto.shopMonthlyFee !== undefined || dto.storeId !== undefined) {
       const storeId = dto.storeId ?? contract.storeId;
       const store = await this.prisma.store.findUnique({
@@ -181,21 +281,26 @@ export class ContractService {
       if (!store)
         throw new NotFoundException(`Store with id ${storeId} not found`);
 
-      const serviceId = this.config.get<number>("CLICK_SERVICE_ID");
-      const merchantId = this.config.get<number>("CLICK_MERCHANT_ID")
-      console.log(serviceId)
-      console.log(merchantId)
-      const amount = dto.shopMonthlyFee ?? contract.shopMonthlyFee;
-      click_payment_url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${contract.id}`;
-      data.click_payment_url = click_payment_url;
+      if (dto.storeId !== undefined) {
+        data.store = { connect: { id: storeId } };
+        delete data.storeId;
+      }
 
-      await this.prisma.store.update({
-        where: { id: store.id },
-        data: { click_payment_url },
-      });
+      const normalizedAmount = this.normalizeAmount(
+        dto.shopMonthlyFee ?? contract.shopMonthlyFee,
+      );
+      const storeNumber = store.storeNumber ?? String(storeId);
+
+      if (normalizedAmount && storeNumber) {
+        syncedStore = await this.syncStorePaymentLinks(
+          store.id,
+          storeNumber,
+          normalizedAmount,
+        );
+      }
     }
 
-    return this.prisma.contract.update({
+    const updated = await this.prisma.contract.update({
       where: { id },
       data,
       include: {
@@ -205,6 +310,10 @@ export class ContractService {
         transactions: true,
       },
     });
+
+    if (syncedStore) updated.store = syncedStore;
+
+    return this.ensureStorePaymentLinks(updated);
   }
 
   async remove(id: number) {
