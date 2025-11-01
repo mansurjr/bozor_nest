@@ -119,7 +119,7 @@ export class AttendanceService {
       const domain =
         this.config.get("MY_DOMAIN") || process.env.MY_DOMAIN || "myrent.uz";
 
-      const params = `m=${merchantId};ac.user_id=1;ac.attendanceId=${attendance.id};a=${amount};c=${domain}`;
+      const params = `m=${merchantId};ac.user_id=1;ac.attendanceId=${attendance.id};acc.contractId=undefined;a=${amount};c=${domain}`;
 
       const encodedParams = base64.encode(params);
 
