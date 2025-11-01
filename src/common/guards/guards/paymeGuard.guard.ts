@@ -31,7 +31,7 @@ export class PaymeBasicAuthGuard implements CanActivate {
 
       // ✅ Configdan login va parolni tekshiramiz
       const validUsername = this.configService.get<string>('PAYMENT_MERCHANT_ID');
-      const validPassword = this.configService.get<string>('PAYME_TEST_PASS');
+      const validPassword = this.configService.get<string>('PAYME_PASS');
 
       const isValid =
         username === validUsername && password === validPassword;
