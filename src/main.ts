@@ -14,7 +14,7 @@ async function bootstrap() {
   app.enableCors({
     origin: ["https://myrent-front-2ytj097cp-barkamolvaliy-2769s-projects.vercel.app", "https://myrent-front.vercel.app", process.env.MY_DOMAIN!, "http://localhost:5173"],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-    allowHeaders: "*",
+    allowHeaders: true,
     credentials: true,
   })
 
