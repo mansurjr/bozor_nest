@@ -97,7 +97,7 @@ export class AttendanceService {
     }
     return this.prisma.attendance.delete({ where: { id } });
   }
-  async getPayUrl(id: number, type: "click" | "payme" = "click") {
+  async getPayUrl(id: number, type: string) {
     const attendance = await this.findOne(id);
     const amount = attendance.amount ? attendance.amount.toString() : "0";
 
