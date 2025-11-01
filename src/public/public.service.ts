@@ -8,14 +8,25 @@ import isBetween from 'dayjs/plugin/isBetween';
 import { GetStallDto } from './dto/getPayInfo.dto';
 dayjs.extend(isBetween);
 
+function normalizeStoreNumber(value?: string): string | undefined {
+  if (!value) return undefined;
+  return value.trim().replace(/\s+/g, '').replace(/,/g, '.');
+}
+
+function normalizeTin(value?: string): string | undefined {
+  if (!value) return undefined;
+  return value.replace(/\s+/g, '').trim();
+}
+
 @Injectable()
 export class PublicService {
   constructor(private readonly prisma: PrismaService) { }
 
   async contract(query: GetContractsDto) {
-    const { storeNumber, tin } = query;
+    const normalizedStoreNumber = normalizeStoreNumber(query.storeNumber);
+    const normalizedTin = normalizeTin(query.tin);
 
-    if (!storeNumber && !tin) {
+    if (!normalizedStoreNumber && !normalizedTin) {
       throw new BadRequestException(
         'At least one parameter (storeNumber or tin) must be provided',
       );
@@ -23,8 +34,8 @@ export class PublicService {
 
 
     const where: Prisma.ContractWhereInput = {};
-    if (storeNumber) where.store = { storeNumber };
-    if (tin) where.owner = { tin };
+    if (normalizedStoreNumber) where.store = { is: { storeNumber: normalizedStoreNumber } };
+    if (normalizedTin) where.owner = { is: { tin: normalizedTin } };
 
 
     const contracts = await this.prisma.contract.findMany({

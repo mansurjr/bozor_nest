@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class StoresService {
@@ -35,32 +36,66 @@ export class StoresService {
     }
 
     const asOf = opts?.asOf ? new Date(opts.asOf) : new Date();
-    const includeContracts = Boolean(opts?.withContracts || opts?.onlyFree);
+    const includeContracts = Boolean(opts?.withContracts);
 
     const skip = (page - 1) * limit;
 
-    const [total, stores] = await Promise.all([
+    const storeInclude: Prisma.StoreInclude = {
+      Section: true,
+    };
+    if (includeContracts) {
+      storeInclude.contracts = {
+        include: {
+          owner: true,
+        },
+        orderBy: { issueDate: 'asc' },
+      };
+    }
+
+    const activeContractWhere: Prisma.ContractWhereInput = {
+      isActive: true,
+      AND: [
+        {
+          OR: [
+            { issueDate: null },
+            { issueDate: { lte: asOf } },
+          ],
+        },
+        {
+          OR: [
+            { expiryDate: null },
+            { expiryDate: { gte: asOf } },
+          ],
+        },
+      ],
+    };
+
+    const [total, stores, activeContracts] = await Promise.all([
       this.prisma.store.count({ where }),
       this.prisma.store.findMany({
         where,
-        include: { Section: true, contracts: includeContracts },
+        include: storeInclude,
         skip,
         take: limit,
         orderBy: { id: 'asc' },
       }),
+      this.prisma.contract.findMany({
+        where: activeContractWhere,
+        select: { storeId: true },
+      }),
     ]);
 
+    const occupiedStoreIds = new Set<number>(
+      activeContracts.map((c) => c.storeId),
+    );
+
     const withOccupation = stores.map((s) => {
-      let isOccupied = false;
-      if (includeContracts && Array.isArray((s as any).contracts)) {
-        isOccupied = (s as any).contracts.some((c: any) => {
-          const active = c.isActive !== false;
-          const startOk = !c.issueDate || new Date(c.issueDate) <= asOf;
-          const endOk = !c.expiryDate || new Date(c.expiryDate) >= asOf;
-          return active && startOk && endOk;
-        });
+      const isOccupied = occupiedStoreIds.has(s.id);
+      if (!includeContracts) {
+        const { contracts, ...rest } = s as any;
+        return { ...rest, isOccupied };
       }
-      return { ...s, isOccupied } as any;
+      return { ...(s as any), isOccupied };
     });
 
     const filtered = opts?.onlyFree ? withOccupation.filter((s: any) => !s.isOccupied) : withOccupation;
