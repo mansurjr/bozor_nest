@@ -67,7 +67,7 @@ export class AttendanceController {
     return this.attendanceService.remove(id);
   }
 
-  @Post(':id/pay')
+  @Get(':id/pay')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get Click payment URL for attendance' })
   getPayUrl(@Param('id', ParseIntPipe) id: number, @Query('type') type: string) {
