@@ -115,7 +115,7 @@ export class AttendanceService {
     } else {
 
       const params = `m=68b142e5b8dc9a4fcc7e5b29;ac.attendanceId=${attendance.id};a=${amount};c="https://myrent.uz"`;
-      const encoded = base64.encode(params);
+      const encoded = base64.decode(params);
       const url = `https://checkout.paycom.uz/${encoded}`;
       return { url };
     }

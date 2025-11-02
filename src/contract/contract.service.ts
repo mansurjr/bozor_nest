@@ -44,7 +44,7 @@ export class ContractService {
     if (!merchantId) return null;
 
     const domain = this.config.get<string>("MY_DOMAIN");
-    const encoded = base64.encode(`m=${merchantId};ac.contractId=${contractReference};ac.attendanceId=null;id=1a=${amount}c=${domain}`)
+    const encoded = base64.decode(`m=${merchantId};ac.contractId=${contractReference};ac.attendanceId=null;id=1a=${amount}c=${domain}`)
     const url = `https://checkout.paycom.uz/${encoded}`
     return url;
 
