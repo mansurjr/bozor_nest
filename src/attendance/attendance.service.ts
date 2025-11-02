@@ -130,6 +130,7 @@ export class AttendanceService {
     const encoded = Buffer.from(params, "utf8").toString("base64");
     const url = `https://checkout.paycom.uz/${encoded}`;
     console.log(amountInTiyin)
+    console.log(amountValue)
     return { url };
   }
 }
