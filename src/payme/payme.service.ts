@@ -59,7 +59,7 @@ export class PaymeService {
 
       console.log(`[checkPerformTransaction] Incoming amount: ${amount}, Expected: ${contract?.shopMonthlyFee}`);
 
-      if (amount && Number(amount) !== Number(contract?.shopMonthlyFee)) {
+      if (amount && Number(amount) !== Number(contract?.shopMonthlyFee) * 100) {
         console.log(`[checkPerformTransaction] ❌ Amount mismatch for contractId=${contractId}`);
         return { error: PaymeError.InvalidAmount, data: null };
       }
@@ -71,7 +71,7 @@ export class PaymeService {
 
       console.log(`[checkPerformTransaction] Incoming amount: ${amount}, Expected: ${attendance.amount}`);
 
-      if (amount && Number(amount) !== Number(attendance.amount)) {
+      if (amount && Number(amount) !== Number(attendance.amount) * 100) {
         console.log(`[checkPerformTransaction] ❌ Amount mismatch for attendanceId=${attendanceId}`);
         return { error: PaymeError.InvalidAmount, data: null };
       }
@@ -159,7 +159,7 @@ export class PaymeService {
       };
     }
 
-    if (amount && Number(amount) !== entityAmount) {
+    if (amount && Number(amount) !== entityAmount * 100) {
       console.log(`[createTransaction] ❌ Amount mismatch for id=${id}: incoming=${amount}, expected=${entityAmount}`);
       return { error: PaymeError.InvalidAmount, data: null };
     }
@@ -296,7 +296,7 @@ export class PaymeService {
     }
 
     return {
-      result: { cancel_time: transaction.cancelTime?.getTime() || 0, transaction: transaction.transactionId, state: -1 } 
+      result: { cancel_time: transaction.cancelTime?.getTime() || 0, transaction: transaction.transactionId, state: -1 }
     }
   }
 
