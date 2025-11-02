@@ -131,6 +131,7 @@ export class AttendanceService {
     const url = `https://checkout.paycom.uz/${encoded}`;
     console.log(amountInTiyin)
     console.log(amountValue)
+    console.log(Buffer.from(encoded, "base64").toString("utf-8"))
     return { url };
   }
 }
