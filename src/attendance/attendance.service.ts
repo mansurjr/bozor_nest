@@ -104,26 +104,22 @@ export class AttendanceService {
     const attendance = await this.findOne(id);
     const amount = attendance.amount ? attendance.amount.toString() : "0";
 
-    let url = "";
-
     if (type === "click") {
       const serviceId =
         this.config.get("PAYMENT_SERVICE_ID") || process.env.PAYMENT_SERVICE_ID;
       const merchantId =
         this.config.get("PAYMENT_MERCHANT_ID") || process.env.PAYMENT_MERCHANT_ID;
 
-      url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${attendance.id}`;
-    }
-
-    else {
+      const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${attendance.id}`;
+      return { url };
+    } else {
       const merchantId = this.config.get<string>("PAYME_MERCHANT_ID");
-
       const domain = this.config.get<string>("MY_DOMAIN");
-      const encoded = base64.encode(`m=${merchantId};ac.contractId=null;ac.attendanceId=${attendance.id};id=1a=${amount}c=${domain}`)
-      const url = `https://checkout.paycom.uz/${encoded}`
-      return url;
-    }
 
-    return { url };
+      const params = `m=${merchantId};ac.attendanceId=${attendance.id};a=${amount};c=${domain}`;
+      const encoded = base64.encode(params);
+      const url = `https://checkout.paycom.uz/${encoded}`;
+      return { url };
+    }
   }
 }
