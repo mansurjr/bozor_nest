@@ -106,7 +106,7 @@ export class AttendanceService {
 
     let url = "";
 
-    if (this.config.get<string>("TENANT_ID") === "ipak_yuli") {
+    if (type === "click") {
       const serviceId =
         this.config.get("PAYMENT_SERVICE_ID") || process.env.PAYMENT_SERVICE_ID;
       const merchantId =
