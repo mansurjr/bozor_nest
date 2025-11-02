@@ -18,7 +18,7 @@ type CheckResult =
 
 @Injectable()
 export class PaymeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async handleTransactionMethods(reqBody: any) {
     switch (reqBody.method) {
@@ -35,17 +35,8 @@ export class PaymeService {
       case TransactionMethods.GetStatement:
         return this.getStatement(reqBody as GetStatementDto);
       default:
-        return {
-          error: {
-            code: -31001,
-            message: {
-              ru: "Неверный метод транзакции",
-              en: "Invalid transaction method",
-              uz: "Noto‘g‘ri tranzaksiya metodi",
-            },
-          },
-          data: null,
-        };
+        return 'Invalid transaction method';
+
     }
   }
 
