@@ -121,12 +121,12 @@ export class AttendanceService {
     }
 
     const merchantId = this.config.get<string>("PAYME_MERCHANT_ID") || process.env.PAYME_MERCHANT_ID;
-    const domain = this.config.get<string>("MY_DOMAIN") || process.env.MY_DOMAIN || "https://myrent.uz";
+    const domain = this.config.get<string>("MY_DOMAIN") || process.env.MY_DOMAIN || "";
     if (!merchantId || !amountInTiyin) {
       return { url: null };
     }
 
-    const params = `m=${merchantId};ac.attendanceId=${attendance.id};ac.contractId=null;id=1;a=${amountInTiyin};c=${domain}`;
+    const params = `m=${merchantId};ac.attendanceId=${attendance.id};ac.contractId=null;id=1;a=${amountInTiyin};c=https://myrent.uz/attendances`;
     const encoded = Buffer.from(params, "utf-8").toString("base64");
     const url = `https://checkout.paycom.uz/${encoded}`;
     console.log(amountInTiyin)

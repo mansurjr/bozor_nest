@@ -200,7 +200,7 @@ export class PaymeService {
         performTime: null,
         cancelTime: null,
         state: 1,
-        reason: 0,
+        reason: null,
         contract: contractIdNum ? { connect: { id: contractIdNum } } : undefined,
         attendance: globAttendance ? { connect: { id: globAttendance.id } } : undefined,
       },
@@ -276,7 +276,7 @@ export class PaymeService {
         cancel_time: transaction.cancelTime?.getTime() || 0,
         transaction: transaction.transactionId.toString(),
         state: transaction.state ?? 1,
-        reason: transaction.reason ?? 0,
+        reason: transaction.reason ?? null,
       },
     };
   }
@@ -296,9 +296,8 @@ export class PaymeService {
     }
 
     return {
-      error: { code: -31008, message: { ru: "Нельзя отменить", en: "Cannot cancel", uz: "Bekor qilish mumkin emas" } },
-      id: transId,
-    };
+      result: { cancel_time: transaction.cancelTime?.getTime() || 0, transaction: transaction.transactionId, state: -1 } 
+    }
   }
 
   async getStatement(getStatementDto: GetStatementDto) {
