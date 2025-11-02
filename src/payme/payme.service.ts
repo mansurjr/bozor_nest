@@ -18,7 +18,7 @@ type CheckResult =
 
 @Injectable()
 export class PaymeService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async handleTransactionMethods(reqBody: any) {
     switch (reqBody.method) {
@@ -65,7 +65,11 @@ export class PaymeService {
       if (!store || paidOrIsNotActive) {
         return { error: PaymeError.AlreadyDone, data: null };
       }
+
+      console.log(`[checkPerformTransaction] Incoming amount: ${amount}, Expected: ${contract?.shopMonthlyFee}`);
+
       if (amount && Number(amount) !== Number(contract?.shopMonthlyFee)) {
+        console.log(`[checkPerformTransaction] ❌ Amount mismatch for contractId=${contractId}`);
         return { error: PaymeError.InvalidAmount, data: null };
       }
     } else if (attendanceId) {
@@ -73,7 +77,11 @@ export class PaymeService {
       if (!attendance || alreadyPaid) {
         return { error: PaymeError.AlreadyDone, data: null };
       }
+
+      console.log(`[checkPerformTransaction] Incoming amount: ${amount}, Expected: ${attendance.amount}`);
+
       if (amount && Number(amount) !== Number(attendance.amount)) {
+        console.log(`[checkPerformTransaction] ❌ Amount mismatch for attendanceId=${attendanceId}`);
         return { error: PaymeError.InvalidAmount, data: null };
       }
     } else {
@@ -109,11 +117,15 @@ export class PaymeService {
       globStore = store;
       entityAmount = Number(contract?.shopMonthlyFee);
       contractIdNum = contract?.id;
+
+      console.log(`[createTransaction] Contract: incoming=${amount}, expected=${entityAmount}`);
     } else if (attendanceId) {
       const { attendance, alreadyPaid } = await checkAttendance(this.prisma, attendanceId);
       if (!attendance || alreadyPaid) return { error: PaymeError.AlreadyDone, data: null };
       globAttendance = attendance;
       entityAmount = Number(attendance.amount);
+
+      console.log(`[createTransaction] Attendance: incoming=${amount}, expected=${entityAmount}`);
 
       const existingAttendanceTransaction = await this.prisma.transaction.findFirst({
         where: { attendanceId, status: { not: "CANCELED" } },
@@ -156,7 +168,10 @@ export class PaymeService {
       };
     }
 
-    if (amount && Number(amount) !== entityAmount) return { error: PaymeError.InvalidAmount, data: null };
+    if (amount && Number(amount) !== entityAmount) {
+      console.log(`[createTransaction] ❌ Amount mismatch for id=${id}: incoming=${amount}, expected=${entityAmount}`);
+      return { error: PaymeError.InvalidAmount, data: null };
+    }
 
     const existingTransaction = await this.prisma.transaction.findUnique({ where: { transactionId: id } });
     if (existingTransaction) {
@@ -199,6 +214,8 @@ export class PaymeService {
         attendance: globAttendance ? { connect: { id: globAttendance.id } } : undefined,
       },
     });
+
+    console.log(`[createTransaction] ✅ Transaction created successfully: id=${id}, amount=${entityAmount}`);
 
     return {
       result: {
@@ -245,6 +262,8 @@ export class PaymeService {
       });
     }
 
+    console.log(`[performTransaction] ✅ Transaction performed successfully: id=${id}`);
+
     return {
       result: {
         transaction: updatedTransaction.transactionId.toString(),
@@ -281,10 +300,14 @@ export class PaymeService {
         where: { id: transaction.id },
         data: { status: "CANCELED", state: -1, cancelTime: new Date(), reason: reqBody.params.reason || 0 },
       });
+      console.log(`[cancelTransaction] Transaction canceled: id=${transId}`);
       return { result: { cancel_time: canceled.cancelTime?.getTime() || 0, transaction: canceled.transactionId, state: -1 } };
     }
 
-    return { error: { code: -31008, message: { ru: "Нельзя отменить", en: "Cannot cancel", uz: "Bekor qilish mumkin emas" } }, id: transId };
+    return {
+      error: { code: -31008, message: { ru: "Нельзя отменить", en: "Cannot cancel", uz: "Bekor qilish mumkin emas" } },
+      id: transId,
+    };
   }
 
   async getStatement(getStatementDto: GetStatementDto) {
