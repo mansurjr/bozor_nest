@@ -4,7 +4,6 @@ import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
 import { Prisma } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
-import base64 from "base-64";
 
 @Injectable()
 export class ContractService {
@@ -49,8 +48,8 @@ export class ContractService {
     const amountInTiyin = Math.round(parsedAmount * 100);
     if (!amountInTiyin) return null;
 
-    const params = `m=${merchantId};ac.contractId=${contractReference};id=1;a=${amountInTiyin};c=${domain}`;
-    const encoded = base64.encode(params);
+    const params = `m=${merchantId};ac.contractId=${contractReference};a=${amountInTiyin};c=${domain}`;
+    const encoded = Buffer.from(params, "utf8").toString("base64");
     return `https://checkout.paycom.uz/${encoded}`;
   }
 

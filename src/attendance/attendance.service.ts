@@ -3,7 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 import { Prisma } from '@prisma/client';
-import base64 from "base-64";
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -127,8 +126,8 @@ export class AttendanceService {
       return { url: null };
     }
 
-    const params = `m=${merchantId};ac.attendanceId=${attendance.id};id=1;a=${amountInTiyin};c=${domain}`;
-    const encoded = base64.encode(params);
+    const params = `m=${merchantId};ac.attendanceId=${attendance.id};a=${amountInTiyin};c=${domain}`;
+    const encoded = Buffer.from(params, "utf8").toString("base64");
     const url = `https://checkout.paycom.uz/${encoded}`;
     return { url };
   }
