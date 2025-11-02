@@ -113,10 +113,8 @@ export class AttendanceService {
       const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${attendance.id}`;
       return { url };
     } else {
-      const merchantId = this.config.get<string>("PAYME_MERCHANT_ID");
-      const domain = this.config.get<string>("MY_DOMAIN");
 
-      const params = `m=${merchantId};ac.attendanceId=${attendance.id};a=${amount};c=${domain}`;
+      const params = `m=68b142e5b8dc9a4fcc7e5b29;ac.attendanceId=${attendance.id};a=${amount};c="https://myrent.uz"`;
       const encoded = base64.encode(params);
       const url = `https://checkout.paycom.uz/${encoded}`;
       return { url };
