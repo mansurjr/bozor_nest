@@ -40,14 +40,18 @@ export class ContractService {
   private buildPaymePaymentUrl(amount: string | null, contractReference: string | number) {
     if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli") return null;
 
-    const merchantId = this.config.get<string>("PAYMENT_MERCHANT_ID");
+    const merchantId = this.config.get<string>("PAYME_MERCHANT_ID") || process.env.PAYME_MERCHANT_ID;
     if (!merchantId) return null;
 
-    const domain = this.config.get<string>("MY_DOMAIN");
-    const encoded = base64.encode(`m=${merchantId};ac.contractId=${contractReference};ac.attendanceId=null;id=1a=${amount}c=${domain}`)
-    const url = `https://checkout.paycom.uz/${encoded}`
-    return url;
+    const domain = this.config.get<string>("MY_DOMAIN") || process.env.MY_DOMAIN || "https://myrent.uz";
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount)) return null;
+    const amountInTiyin = Math.round(parsedAmount * 100);
+    if (!amountInTiyin) return null;
 
+    const params = `m=${merchantId};ac.contractId=${contractReference};id=1;a=${amountInTiyin};c=${domain}`;
+    const encoded = base64.encode(params);
+    return `https://checkout.paycom.uz/${encoded}`;
   }
 
   private async ensureStorePaymentLinks(contract: any) {

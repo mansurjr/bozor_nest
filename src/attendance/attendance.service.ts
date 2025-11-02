@@ -102,7 +102,10 @@ export class AttendanceService {
 
   async getPayUrl(id: number, type: string) {
     const attendance = await this.findOne(id);
-    const amount = attendance.amount ? attendance.amount.toString() : "0";
+    const amountRaw = attendance.amount ? attendance.amount.toString() : "0";
+    const amountNumber = Number(amountRaw);
+    const amountValue = Number.isFinite(amountNumber) ? amountNumber : 0;
+    const amountInTiyin = Math.round(amountValue * 100);
 
     if (type === "click") {
       const serviceId =
@@ -110,14 +113,23 @@ export class AttendanceService {
       const merchantId =
         this.config.get("PAYMENT_MERCHANT_ID") || process.env.PAYMENT_MERCHANT_ID;
 
-      const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${attendance.id}`;
-      return { url };
-    } else {
-
-      const params = `m=68b142e5b8dc9a4fcc7e5b29;ac.attendanceId=${attendance.id};a=${amount};c="https://myrent.uz"`;
-      const encoded = base64.encode(params);
-      const url = `https://checkout.paycom.uz/${encoded}`;
+      const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amountValue}&transaction_param=${attendance.id}`;
       return { url };
     }
+
+    if (this.config.get<string>("TENANT_ID") !== "ipak_yuli") {
+      return { url: null };
+    }
+
+    const merchantId = this.config.get<string>("PAYME_MERCHANT_ID") || process.env.PAYME_MERCHANT_ID;
+    const domain = this.config.get<string>("MY_DOMAIN") || process.env.MY_DOMAIN || "https://myrent.uz";
+    if (!merchantId || !amountInTiyin) {
+      return { url: null };
+    }
+
+    const params = `m=${merchantId};ac.attendanceId=${attendance.id};id=1;a=${amountInTiyin};c=${domain}`;
+    const encoded = base64.encode(params);
+    const url = `https://checkout.paycom.uz/${encoded}`;
+    return { url };
   }
 }
