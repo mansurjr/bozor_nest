@@ -54,6 +54,13 @@ export class ContractService {
     return `https://checkout.paycom.uz/${encoded}`;
   }
 
+  private hasValidPaymeUrl(url?: string | null) {
+    if (!url) return false;
+    if (!url.startsWith("https://checkout.paycom.uz/")) return false;
+    const payload = url.replace("https://checkout.paycom.uz/", "");
+    return payload.length > 0 && /^[A-Za-z0-9+/=]+$/.test(payload);
+  }
+
   private async ensureStorePaymentLinks(contract: any) {
     if (!contract?.store) return contract;
 
@@ -65,7 +72,7 @@ export class ContractService {
     const needsClick = !contract.store.click_payment_url;
     const needsPayme =
       this.config.get<string>("TENANT_ID") === "ipak_yuli" &&
-      !contract.store.payme_payment_url;
+      !this.hasValidPaymeUrl(contract.store.payme_payment_url);
 
     if (!needsClick && !needsPayme) return contract;
 
@@ -218,7 +225,11 @@ export class ContractService {
       take: limit,
     });
 
-    return { total, page, limit, data };
+    const enriched = await Promise.all(
+      data.map((contract) => this.ensureStorePaymentLinks(contract)),
+    );
+
+    return { total, page, limit, data: enriched };
   }
 
   async findOne(id: number) {
@@ -233,7 +244,7 @@ export class ContractService {
     });
     if (!contract)
       throw new NotFoundException(`Contract with id ${id} not found`);
-    return contract;
+    return this.ensureStorePaymentLinks(contract);
   }
 
   async update(id: number, dto: UpdateContractDto) {
