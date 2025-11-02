@@ -4,7 +4,6 @@ import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
 import { Prisma } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
-import base64 from "base-64";
 
 @Injectable()
 export class ContractService {
@@ -40,14 +39,25 @@ export class ContractService {
   private buildPaymePaymentUrl(amount: string | null, contractReference: string | number) {
     if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli") return null;
 
-    const merchantId = this.config.get<string>("PAYMENT_MERCHANT_ID");
+    const merchantId = this.config.get<string>("PAYME_MERCHANT_ID") || process.env.PAYME_MERCHANT_ID;
     if (!merchantId) return null;
 
-    const domain = this.config.get<string>("MY_DOMAIN");
-    const encoded = base64.decode(`m=${merchantId};ac.contractId=${contractReference};ac.attendanceId=null;id=1a=${amount}c=${domain}`)
-    const url = `https://checkout.paycom.uz/${encoded}`
-    return url;
+    const domain = this.config.get<string>("MY_DOMAIN") || process.env.MY_DOMAIN || "https://myrent.uz";
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount)) return null;
+    const amountInTiyin = Math.round(parsedAmount * 100);
+    if (!amountInTiyin) return null;
 
+    const params = `m=${merchantId};ac.contractId=${contractReference};a=${amountInTiyin};c=${domain}`;
+    const encoded = Buffer.from(params, "utf8").toString("base64");
+    return `https://checkout.paycom.uz/${encoded}`;
+  }
+
+  private hasValidPaymeUrl(url?: string | null) {
+    if (!url) return false;
+    if (!url.startsWith("https://checkout.paycom.uz/")) return false;
+    const payload = url.replace("https://checkout.paycom.uz/", "");
+    return payload.length > 0 && /^[A-Za-z0-9+/=]+$/.test(payload);
   }
 
   private async ensureStorePaymentLinks(contract: any) {
@@ -61,7 +71,7 @@ export class ContractService {
     const needsClick = !contract.store.click_payment_url;
     const needsPayme =
       this.config.get<string>("TENANT_ID") === "ipak_yuli" &&
-      !contract.store.payme_payment_url;
+      !this.hasValidPaymeUrl(contract.store.payme_payment_url);
 
     if (!needsClick && !needsPayme) return contract;
 
@@ -214,7 +224,11 @@ export class ContractService {
       take: limit,
     });
 
-    return { total, page, limit, data };
+    const enriched = await Promise.all(
+      data.map((contract) => this.ensureStorePaymentLinks(contract)),
+    );
+
+    return { total, page, limit, data: enriched };
   }
 
   async findOne(id: number) {
@@ -229,7 +243,7 @@ export class ContractService {
     });
     if (!contract)
       throw new NotFoundException(`Contract with id ${id} not found`);
-    return contract;
+    return this.ensureStorePaymentLinks(contract);
   }
 
   async update(id: number, dto: UpdateContractDto) {
