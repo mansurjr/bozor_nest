@@ -48,9 +48,9 @@ export const PaymeError = {
     name: 'AlreadyDone',
     code: -31060,
     message: {
-      uz: "Mahsulot uchun to'lov qilingan",
-      ru: 'Оплачено за товар',
-      en: 'Paid for the product',
+      uz: "Bu uchun to'lov qilib bo'lingan yoki status aktiv emas.",
+      ru: 'Оплата за это не проведена или статус неактивен.',
+      en: 'Already paid for this or status is not active',
     },
   },
   Pending: {

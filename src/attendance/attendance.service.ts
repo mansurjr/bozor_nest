@@ -97,14 +97,16 @@ export class AttendanceService {
     }
     return this.prisma.attendance.delete({ where: { id } });
   }
+
+
+
   async getPayUrl(id: number, type: string) {
     const attendance = await this.findOne(id);
     const amount = attendance.amount ? attendance.amount.toString() : "0";
 
     let url = "";
 
-    if (type === "click") {
-      // 🔹 CLICK payment link
+    if (this.config.get<string>("TENANT_ID") === "ipak_yuli") {
       const serviceId =
         this.config.get("CLICK_SERVICE_ID") || process.env.CLICK_SERVICE_ID;
       const merchantId =
@@ -113,17 +115,13 @@ export class AttendanceService {
       url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${attendance.id}`;
     }
 
-    if (type === "payme") {
-      const merchantId =
-        this.config.get("PAYMENT_MERCHANT_ID") || process.env.PAYMENT_MERCHANT_ID;
-      const domain =
-        this.config.get("MY_DOMAIN") || process.env.MY_DOMAIN || "myrent.uz";
+    else {
+      const merchantId = this.config.get<string>("PAYME_MERCHANT_ID");
 
-      const params = `m=${merchantId};ac.user_id=1;ac.attendanceId=${attendance.id};acc.contractId=undefined;a=${amount};c=${domain}`;
-
-      const encodedParams = base64.encode(params);
-
-      url = `https://checkout.paycom.uz/${encodedParams}`;
+      const domain = this.config.get<string>("MY_DOMAIN");
+      const encoded = base64.encode(`m=${merchantId};ac.contractId=null;ac.attendanceId=${attendance.id};id=1a=${amount}c=${domain}`)
+      const url = `https://checkout.paycom.uz/${encoded}`
+      return url;
     }
 
     return { url };

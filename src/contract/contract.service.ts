@@ -43,11 +43,11 @@ export class ContractService {
     const merchantId = this.config.get<string>("PAYMENT_MERCHANT_ID");
     if (!merchantId) return null;
 
-    const encodedMerchant = base64.encode(merchantId);
     const domain = this.config.get<string>("MY_DOMAIN");
-    const domainPart = domain ? `;c=${domain}` : "";
+    const encoded = base64.encode(`m=${merchantId};ac.contractId=${contractReference};ac.attendanceId=null;id=1a=${amount}c=${domain}`)
+    const url = `https://checkout.paycom.uz/${encoded}`
+    return url;
 
-    return `https://checkout.paycom.uz/m=${encodedMerchant};acc.id=1;acc.contractId=${contractReference};a=${amount}${domainPart}`;
   }
 
   private async ensureStorePaymentLinks(contract: any) {

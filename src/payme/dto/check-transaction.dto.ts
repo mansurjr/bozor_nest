@@ -1,4 +1,4 @@
-import { TransactionMethods } from '../constants/transaction-methods';
+import { TransactionMethods } from "../types";
 
 export class CheckTransactionDto {
   method: TransactionMethods;

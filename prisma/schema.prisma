@@ -120,13 +120,25 @@ model Transaction {
   amount        Decimal
   status        String        @default("PENDING")
   paymentMethod PaymentMethod @default(CASH)
-  contractId    Int?
-  attendanceId  Int?          @unique
-  attendance    Attendance?   @relation("AttendanceTransaction", fields: [attendanceId], references: [id])
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  contract  Contract? @relation(fields: [contractId], references: [id])
+  contractId   Int?
+  attendanceId Int?        @unique
+  attendance   Attendance? @relation("AttendanceTransaction", fields: [attendanceId], references: [id])
+  contract     Contract?   @relation(fields: [contractId], references: [id])
+
+  prepareId   Int?
+  performTime DateTime?
+  cancelTime  DateTime?
+  reason      Int?
+  state       Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
 }
 
 model ClickTransaction {

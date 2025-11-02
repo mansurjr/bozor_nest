@@ -1,25 +1,26 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { Prisma, Transaction } from '@prisma/client';
-import { TransactionMethods } from './constants/transaction-methods';
-import { CheckPerformTransactionDto } from './dto/check-perform-transaction.dto';
-import { CreateTransactionDto } from './dto/create-transaction.dto';
-import { PerformTransactionDto } from './dto/perform-transaction.dto';
-import { CancelTransactionDto } from './dto/cancel-transaction.dto';
-import { CheckTransactionDto } from './dto/check-transaction.dto';
-import { GetStatementDto } from './dto/get-statement.dto';
-import { ErrorStatusCodes } from './constants/error-status-codes';
-import { PaymeError } from './constants/payme-error';
-import { TransactionState } from './constants/transaction-state';
-import { CancelingReasons } from './constants/canceling-reasons';
-import { RequestBody } from './dto/incominBody';
-import { DateTime } from 'luxon';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { TransactionMethods } from "./types";
+import { CheckPerformTransactionDto } from "./dto/check-perform-transaction.dto";
+import { CreateTransactionDto } from "./dto/create-transaction.dto";
+import { PerformTransactionDto } from "./dto/perform-transaction.dto";
+import { CheckTransactionDto } from "./dto/check-transaction.dto";
+import { CancelTransactionDto } from "./dto/cancel-transaction.dto";
+import { GetStatementDto } from "./dto/get-statement.dto";
+import { PaymeError } from "../common/types/payme-error";
+import { Attendance, AttendancePayment, Prisma, Store } from "@prisma/client";
+import { checkAttendance, checkStore } from "./utils";
+import { DateTime } from "luxon";
+
+type CheckResult =
+  | { error: { code: number; message: { ru: string; en: string; uz: string } }; data: null }
+  | { result: { allow: boolean } };
 
 @Injectable()
 export class PaymeService {
   constructor(private readonly prisma: PrismaService) { }
 
-  async handleTransactionMethods(reqBody: RequestBody) {
+  async handleTransactionMethods(reqBody: any) {
     switch (reqBody.method) {
       case TransactionMethods.CheckPerformTransaction:
         return this.checkPerformTransaction(reqBody as CheckPerformTransactionDto);
@@ -27,336 +28,270 @@ export class PaymeService {
         return this.createTransaction(reqBody as CreateTransactionDto);
       case TransactionMethods.PerformTransaction:
         return this.performTransaction(reqBody as PerformTransactionDto);
-      case TransactionMethods.CancelTransaction:
-        return this.cancelTransaction(reqBody as CancelTransactionDto);
       case TransactionMethods.CheckTransaction:
         return this.checkTransaction(reqBody as CheckTransactionDto);
+      case TransactionMethods.CancelTransaction:
+        return this.cancelTransaction(reqBody as CancelTransactionDto);
       case TransactionMethods.GetStatement:
         return this.getStatement(reqBody as GetStatementDto);
       default:
-        return { error: 'Invalid transaction method' };
+        return {
+          error: {
+            code: -31001,
+            message: {
+              ru: "Неверный метод транзакции",
+              en: "Invalid transaction method",
+              uz: "Noto‘g‘ri tranzaksiya metodi",
+            },
+          },
+          data: null,
+        };
     }
   }
 
-  // ============================= CHECK PERFORM TRANSACTION =============================
+  private checkTransactionExpiration(createdAt: Date) {
+    const timeoutMinutes = 720;
+    const expirationDate = DateTime.now().minus({ minutes: timeoutMinutes }).toJSDate();
+    return createdAt < expirationDate;
+  }
 
-  async checkPerformTransaction(dto: CheckPerformTransactionDto) {
-    const account = dto.params.account;
-    const transId = account.attendanceId || account.contractId; // storeNumber instead of contractId
-    const amount = new Prisma.Decimal(dto.params.amount);
+  async checkPerformTransaction(reqBody: CheckPerformTransactionDto): Promise<CheckResult> {
+    const { amount, account } = reqBody.params;
+    const attendanceId = account.attendanceId ? +account.attendanceId : 0;
+    const contractId = account.contractId && account.contractId !== "null" ? account.contractId : "";
 
-    if (!transId) {
-      return {
-        error: {
-          code: ErrorStatusCodes.TransactionNotAllowed,
-          message: {
-            uz: 'Hisob ma’lumotlari topilmadi',
-            en: 'Account information not found',
-            ru: 'Информация об аккаунте не найдена',
-          },
-          data: null,
-        },
-      };
-    }
-
-    let transaction: Transaction;
-
-    // ================= DAILY ATTENDANCE PAYMENT =================
-    if (account.attendanceId) {
-      const attendanceId = Number(account.attendanceId);
-      const attendance = await this.prisma.attendance.findUnique({
-        where: { id: attendanceId },
-      });
-
-      if (!attendance) {
-        return {
-          error: {
-            code: ErrorStatusCodes.TransactionNotFound,
-            message: {
-              uz: 'Attendance topilmadi',
-              en: 'Attendance not found',
-              ru: 'Посещаемость не найдена',
-            },
-          },
-        };
+    if (contractId) {
+      const { store, contract, paidOrIsNotActive } = await checkStore(this.prisma, contractId);
+      if (!store || paidOrIsNotActive) {
+        return { error: PaymeError.AlreadyDone, data: null };
       }
-
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date();
-      todayEnd.setHours(23, 59, 59, 999);
-
-      const existing = await this.prisma.transaction.findFirst({
-        where: {
-          attendanceId: attendance.id,
-          status: 'PAID',
-          createdAt: { gte: todayStart, lte: todayEnd },
-        },
-      });
-
-      if (existing) {
-        return {
-          error: {
-            code: ErrorStatusCodes.TransactionNotAllowed,
-            message: {
-              uz: 'Bugungi kun uchun allaqachon to‘lov amalga oshirilgan',
-              en: 'Payment has already been made for today',
-              ru: 'Оплата за сегодняшний день уже была произведена',
-            },
-            data: null,
-          },
-        };
+      if (amount && Number(amount) !== Number(contract?.shopMonthlyFee)) {
+        return { error: PaymeError.InvalidAmount, data: null };
       }
-
-      transaction = await this.prisma.transaction.create({
-        data: {
-          transactionId: `DAILY-${attendance.id}-${Date.now()}`,
-          amount: attendance.amount ?? new Prisma.Decimal(0),
-          status: 'PENDING',
-          paymentMethod: 'PAYME',
-          attendance: { connect: { id: attendance.id } },
-        },
-      });
-    }
-
-    // ================= MONTHLY STORE PAYMENT =================
-    else if (account.contractId) {
-      const storeNumber = account.contractId;
-
-      const store = await this.prisma.store.findFirst({
-        where: { storeNumber },
-        include: { contracts: true },
-      });
-
-      if (!store) {
-        return {
-          error: {
-            code: ErrorStatusCodes.TransactionNotFound,
-            message: {
-              uz: 'Do‘kon topilmadi',
-              en: 'Store not found',
-              ru: 'Магазин не найден',
-            },
-          },
-        };
+    } else if (attendanceId) {
+      const { attendance, alreadyPaid } = await checkAttendance(this.prisma, attendanceId);
+      if (!attendance || alreadyPaid) {
+        return { error: PaymeError.AlreadyDone, data: null };
       }
-
-      const contract =
-        store.contracts?.find((c: any) => c.isActive) ??
-        store.contracts?.[0];
-
-      if (!contract || !contract.isActive) {
-        return {
-          error: {
-            code: ErrorStatusCodes.TransactionNotAllowed,
-            message: {
-              uz: 'Faol shartnoma topilmadi',
-              en: 'No active contract found for this store',
-              ru: 'Активный договор для этого магазина не найден',
-            },
-            data: null,
-          },
-        };
+      if (amount && Number(amount) !== Number(attendance.amount)) {
+        return { error: PaymeError.InvalidAmount, data: null };
       }
-
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
-
-      const endOfMonth = new Date(startOfMonth);
-      endOfMonth.setMonth(startOfMonth.getMonth() + 1);
-      endOfMonth.setMilliseconds(-1);
-
-      const existingMonthly = await this.prisma.transaction.findFirst({
-        where: {
-          contractId: contract.id,
-          status: 'PAID',
-          createdAt: { gte: startOfMonth, lte: endOfMonth },
-        },
-      });
-
-      if (existingMonthly) {
-        return {
-          error: {
-            code: ErrorStatusCodes.TransactionNotAllowed,
-            message: {
-              uz: 'Ushbu oy uchun allaqachon to‘lov amalga oshirilgan',
-              en: 'Payment has already been made for this month',
-              ru: 'Оплата за этот месяц уже была произведена',
-            },
-            data: null,
-          },
-        };
-      }
-
-      transaction = await this.prisma.transaction.create({
-        data: {
-          transactionId: `MONTHLY-${store.storeNumber}-${Date.now()}`,
-          amount: contract.shopMonthlyFee ?? new Prisma.Decimal(0),
-          status: 'PENDING',
-          paymentMethod: 'PAYME',
-          contract: { connect: { id: contract.id } },
-        },
-      });
     } else {
       return {
         error: {
-          code: ErrorStatusCodes.TransactionNotAllowed,
+          code: -31060,
           message: {
-            uz: 'Hisob ma’lumotlari yetarli emas',
-            en: 'Insufficient account information',
-            ru: 'Недостаточно данных об аккаунте',
+            ru: "Отсутствует информация по аккаунту",
+            en: "Account information missing",
+            uz: "Hisob ma’lumotlari topilmadi",
           },
-          data: null,
         },
+        data: null,
       };
     }
 
-    // ================= AMOUNT VALIDATION =================
-    if (!transaction.amount.equals(amount)) {
-      return {
-        error: {
-          code: ErrorStatusCodes.InvalidAmount,
-          message: {
-            uz: 'To‘lov summasi noto‘g‘ri',
-            en: 'Invalid payment amount',
-            ru: 'Неверная сумма платежа',
-          },
-          data: null,
-        },
-      };
-    }
-
-    // ✅ SUCCESS
     return { result: { allow: true } };
   }
 
+  async createTransaction(reqBody: CreateTransactionDto) {
+    const { id, amount, account } = reqBody.params;
+    const attendanceId = account.attendanceId ? +account.attendanceId : 0;
+    const contractId = account.contractId && account.contractId !== "null" ? account.contractId : "";
 
-  // ============================= CREATE TRANSACTION =============================
+    let entityAmount: number;
+    let globStore: Store | null = null;
+    let globAttendance: Attendance | null = null;
+    let contractIdNum: number | undefined;
 
-  async createTransaction(dto: CreateTransactionDto) {
-    const checkResult = await this.checkPerformTransaction({
+    if (contractId) {
+      const { store, contract, paidOrIsNotActive } = await checkStore(this.prisma, contractId);
+      if (!store || paidOrIsNotActive) return { error: PaymeError.AlreadyDone, data: null };
+      globStore = store;
+      entityAmount = Number(contract?.shopMonthlyFee);
+      contractIdNum = contract?.id;
+    } else if (attendanceId) {
+      const { attendance, alreadyPaid } = await checkAttendance(this.prisma, attendanceId);
+      if (!attendance || alreadyPaid) return { error: PaymeError.AlreadyDone, data: null };
+      globAttendance = attendance;
+      entityAmount = Number(attendance.amount);
+
+      const existingAttendanceTransaction = await this.prisma.transaction.findFirst({
+        where: { attendanceId, status: { not: "CANCELED" } },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (existingAttendanceTransaction) {
+        if (existingAttendanceTransaction.transactionId.toString() === id.toString()) {
+          return {
+            result: {
+              transaction: existingAttendanceTransaction.transactionId.toString(),
+              state: existingAttendanceTransaction.state ?? 1,
+              create_time: existingAttendanceTransaction.createdAt.getTime(),
+            },
+          };
+        }
+        return {
+          error: {
+            code: -31099,
+            message: {
+              ru: "Для данного посещения уже существует активная транзакция",
+              en: "An active transaction already exists for this attendance",
+              uz: "Ushbu qatnashuv uchun faol tranzaksiya allaqachon mavjud",
+            },
+          },
+          data: null,
+        };
+      }
+    } else {
+      return {
+        error: {
+          code: -31060,
+          message: {
+            ru: "Отсутствует информация по аккаунту",
+            en: "Account information missing",
+            uz: "Hisob ma’lumotlari topilmadi",
+          },
+        },
+        data: null,
+      };
+    }
+
+    if (amount && Number(amount) !== entityAmount) return { error: PaymeError.InvalidAmount, data: null };
+
+    const existingTransaction = await this.prisma.transaction.findUnique({ where: { transactionId: id } });
+    if (existingTransaction) {
+      if (existingTransaction.status !== "PENDING") return { error: PaymeError.CantDoOperation, id };
+      if (this.checkTransactionExpiration(existingTransaction.createdAt)) {
+        await this.prisma.transaction.update({
+          where: { id: existingTransaction.id },
+          data: { status: "CANCELED", cancelTime: new Date(), state: -1, reason: 4 },
+        });
+        return { error: { ...PaymeError.CantDoOperation, state: -1, reason: 4 }, id };
+      }
+      return {
+        result: {
+          transaction: existingTransaction.transactionId.toString(),
+          state: 1,
+          create_time: existingTransaction.createdAt.getTime(),
+        },
+      };
+    }
+
+    // perform check
+    const checkTransaction: CheckPerformTransactionDto = {
       method: TransactionMethods.CheckPerformTransaction,
-      params: dto.params,
-    } as CheckPerformTransactionDto);
-
-    if (checkResult.error) return { error: checkResult.error, id: dto.params.id };
+      params: { amount: entityAmount, account: { contractId: contractId || "", attendanceId: attendanceId || 0, id: 1 } },
+    };
+    const checkResult = await this.checkPerformTransaction(checkTransaction);
+    if ("error" in checkResult) return { error: checkResult.error, id };
 
     const newTransaction = await this.prisma.transaction.create({
       data: {
-        transactionId: dto.params.id,
-        amount: new Prisma.Decimal(dto.params.amount),
-        status: 'PENDING',
-        paymentMethod: 'PAYME',
+        transactionId: id,
+        amount: new Prisma.Decimal(entityAmount),
+        status: "PENDING",
+        paymentMethod: "PAYME",
+        performTime: null,
+        cancelTime: null,
+        state: 1,
+        reason: 0,
+        contract: contractIdNum ? { connect: { id: contractIdNum } } : undefined,
+        attendance: globAttendance ? { connect: { id: globAttendance.id } } : undefined,
       },
     });
 
     return {
       result: {
-        transaction: newTransaction.id,
-        state: TransactionState.Pending,
+        transaction: newTransaction.transactionId.toString(),
+        state: newTransaction.state,
         create_time: newTransaction.createdAt.getTime(),
       },
     };
   }
 
-  // ============================= PERFORM TRANSACTION =============================
+  async performTransaction(reqBody: PerformTransactionDto) {
+    const { id } = reqBody.params;
+    const transaction = await this.prisma.transaction.findUnique({ where: { transactionId: id } });
 
-  async performTransaction(dto: PerformTransactionDto) {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { transactionId: dto.params.id },
-      include: { attendance: true, contract: true },
-    });
-
-    if (!transaction)
-      return { error: PaymeError.TransactionNotFound, id: dto.params.id };
-
-    if (transaction.status === 'PAID') {
+    if (!transaction) return { error: PaymeError.TransactionNotFound, id };
+    if (transaction.status !== "PENDING") {
+      if (transaction.status !== "PAID") return { error: PaymeError.CantDoOperation, id };
       return {
         result: {
-          state: TransactionState.Paid,
-          perform_time: transaction.updatedAt.getTime(),
+          transaction: transaction.transactionId.toString(),
+          perform_time: transaction.performTime?.getTime() || 0,
+          state: transaction.state ?? 2,
         },
       };
     }
 
-    await this.prisma.transaction.update({
+    if (this.checkTransactionExpiration(transaction.createdAt)) {
+      await this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: { status: "CANCELED", cancelTime: new Date(), state: -1, reason: 4 },
+      });
+      return { error: { ...PaymeError.CantDoOperation, state: -1, reason: 4 }, id };
+    }
+
+    const updatedTransaction = await this.prisma.transaction.update({
       where: { id: transaction.id },
-      data: { status: 'PAID' },
+      data: { status: "PAID", state: 2, performTime: new Date() },
     });
 
-    if (transaction.attendanceId) {
+    if (updatedTransaction.attendanceId) {
       await this.prisma.attendance.update({
-        where: { id: transaction.attendanceId },
-        data: { status: 'PAID' },
+        where: { id: updatedTransaction.attendanceId },
+        data: { status: AttendancePayment.PAID, transactionId: updatedTransaction.id },
       });
     }
 
     return {
       result: {
-        state: TransactionState.Paid,
-        perform_time: new Date().getTime(),
+        transaction: updatedTransaction.transactionId.toString(),
+        perform_time: updatedTransaction.performTime!.getTime(),
+        state: updatedTransaction.state,
       },
     };
   }
 
-  // ============================= CANCEL TRANSACTION =============================
-
-  async cancelTransaction(dto: CancelTransactionDto) {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { transactionId: dto.params.id },
-    });
-
-    if (!transaction)
-      return { id: dto.params.id, error: PaymeError.TransactionNotFound };
-
-    const updated = await this.prisma.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        status: 'CANCELED',
-        updatedAt: new Date(),
-      },
-    });
-
-    return {
-      result: {
-        state: TransactionState.PendingCanceled,
-        cancel_time: updated.updatedAt.getTime(),
-      },
-    };
-  }
-
-  // ============================= CHECK TRANSACTION =============================
-
-  async checkTransaction(dto: CheckTransactionDto) {
-    const transaction = await this.prisma.transaction.findUnique({
-      where: { transactionId: dto.params.id },
-    });
-
-    if (!transaction)
-      return { error: PaymeError.TransactionNotFound, id: dto.params.id };
+  async checkTransaction(reqBody: CheckTransactionDto) {
+    const { id } = reqBody.params;
+    const transaction = await this.prisma.transaction.findUnique({ where: { transactionId: id } });
+    if (!transaction) return { error: PaymeError.TransactionNotFound, id };
 
     return {
       result: {
         create_time: transaction.createdAt.getTime(),
-        perform_time: transaction.updatedAt.getTime(),
-        transaction: transaction.id,
-        state: transaction.status === 'PAID' ? TransactionState.Paid : TransactionState.Pending,
+        perform_time: transaction.performTime?.getTime() || 0,
+        cancel_time: transaction.cancelTime?.getTime() || 0,
+        transaction: transaction.transactionId.toString(),
+        state: transaction.state ?? 1,
+        reason: transaction.reason ?? 0,
       },
     };
   }
 
-  // ============================= GET STATEMENT =============================
+  async cancelTransaction(reqBody: CancelTransactionDto) {
+    const transId = reqBody.params.id;
+    const transaction = await this.prisma.transaction.findUnique({ where: { transactionId: transId } });
+    if (!transaction) return { id: transId, error: PaymeError.TransactionNotFound };
 
-  async getStatement(dto: GetStatementDto) {
+    if (transaction.status === "PENDING") {
+      const canceled = await this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: { status: "CANCELED", state: -1, cancelTime: new Date(), reason: reqBody.params.reason || 0 },
+      });
+      return { result: { cancel_time: canceled.cancelTime?.getTime() || 0, transaction: canceled.transactionId, state: -1 } };
+    }
+
+    return { error: { code: -31008, message: { ru: "Нельзя отменить", en: "Cannot cancel", uz: "Bekor qilish mumkin emas" } }, id: transId };
+  }
+
+  async getStatement(getStatementDto: GetStatementDto) {
+    const { from, to } = getStatementDto.params;
     const transactions = await this.prisma.transaction.findMany({
-      where: {
-        createdAt: {
-          gte: new Date(dto.params.from),
-          lte: new Date(dto.params.to),
-        },
-        paymentMethod: 'PAYME',
-      },
+      where: { createdAt: { gte: new Date(from), lte: new Date(to) }, paymentMethod: "PAYME" },
+      orderBy: { createdAt: "asc" },
     });
 
     return {
@@ -365,9 +300,13 @@ export class PaymeService {
           id: t.transactionId,
           time: t.createdAt.getTime(),
           amount: t.amount,
+          account: { attendanceId: t.attendanceId, contractId: t.contractId, id: 1 },
           create_time: t.createdAt.getTime(),
-          perform_time: t.updatedAt.getTime(),
-          state: t.status,
+          perform_time: t.performTime?.getTime() || 0,
+          cancel_time: t.cancelTime?.getTime() || 0,
+          transaction: t.transactionId,
+          state: t.state ?? null,
+          reason: t.reason ?? null,
         })),
       },
     };

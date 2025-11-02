@@ -1,77 +1,51 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { PaymeError } from '../../../payme/constants/payme-error';
+import { PaymeError } from '../../types/payme-error';
 
-// ✅ Payme so'rovlarini tekshiruvchi guard
 @Injectable()
 export class PaymeBasicAuthGuard implements CanActivate {
-  constructor(private readonly configService: ConfigService) { }
+  private readonly logger = new Logger(PaymeBasicAuthGuard.name);
+
+  constructor(private configService: ConfigService) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
+    const transId = request?.body?.id;
+
+    const denyAccess = (reason: string) => {
+      this.logger.error(`Payme authorization failed: ${reason}, transaction id: ${transId}`);
+      response.status(200).send({
+        id: transId,
+        error: PaymeError.InvalidAuthorization,
+      });
+      return false;
+    };
+
     const token = this.extractTokenFromHeader(request);
-    const transId = request?.body?.id ?? null;
+    if (!token) return denyAccess('No authorization token provided');
 
-    // ✅ Token mavjud emas — javob 200 qaytariladi
-    if (!token) {
-      this.sendError(response, transId, PaymeError.InvalidAuthorization);
-      return false;
+    const decoded = this.decodeToken(token);
+    if (!decoded) return denyAccess('Failed to decode token');
+
+    const [username, password] = decoded.split(':');
+    const isValidUsername = this.configService.get<string>('PAYME_LOGIN') === username;
+    const isValidPassword = this.configService.get<string>('PAYME_PASS') === password;
+
+    if (!isValidUsername || !isValidPassword) {
+      return denyAccess('Invalid username or password');
     }
 
-    try {
-      const decoded = this.decodeToken(token);
-      if (!decoded) {
-        this.sendError(response, transId, PaymeError.InvalidAuthorization);
-        return false;
-      }
-
-      const [username, password] = decoded.split(':');
-
-      // ✅ Configdan login va parolni tekshiramiz
-      const validUsername = this.configService.get<string>('PAYMENT_MERCHANT_ID');
-      const validPassword = this.configService.get<string>('PAYME_PASS');
-
-      const isValid =
-        username === validUsername && password === validPassword;
-
-      if (!isValid) {
-        this.sendError(response, transId, PaymeError.InvalidAuthorization);
-        return false;
-      }
-
-      // ✅ Agar token to'g'ri bo'lsa — davom etadi
-      return true;
-    } catch {
-      this.sendError(response, transId, PaymeError.InvalidAuthorization);
-      return false;
-    }
+    return true;
   }
 
-  // 🔹 "Authorization" headerdan tokenni ajratish
   private extractTokenFromHeader(request: Request): string | undefined {
-    const authHeader = request.headers['authorization'];
-    if (!authHeader) return undefined;
-
-    const [type, token] = authHeader.split(' ');
+    const [type, token] = request.headers['authorization']?.split(' ') ?? [];
     return type === 'Basic' ? token : undefined;
   }
 
-  // 🔹 Base64 decode qilish (Node.js uchun)
-  private decodeToken(token: string): string | undefined {
-    try {
-      return Buffer.from(token, 'base64').toString('utf8');
-    } catch {
-      return undefined;
-    }
-  }
-
-  // 🔹 Payme standartidagi error javobi
-  private sendError(response: Response, id: any, error: any) {
-    response.status(200).json({
-      id,
-      error,
-    });
+  private decodeToken(token: string) {
+    return token?.length > 0 ? Buffer.from(token, 'base64').toString('utf-8') : undefined;
   }
 }

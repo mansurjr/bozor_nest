@@ -1,4 +1,4 @@
-import { TransactionMethods } from '../constants/transaction-methods';
+import { TransactionMethods } from "../types";
 
 export class CreateTransactionDto {
   method: TransactionMethods;
@@ -7,8 +7,9 @@ export class CreateTransactionDto {
     time: number;
     amount: number;
     account: {
-      user_id: string;
-      planId: string;
+      attendanceId: number,
+      contractId: string,
+      id: number
     };
   };
 }

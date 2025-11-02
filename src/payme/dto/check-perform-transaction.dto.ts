@@ -1,12 +1,13 @@
-import { TransactionMethods } from '../constants/transaction-methods';
+import { TransactionMethods } from "../types";
 
 export class CheckPerformTransactionDto {
-  method: TransactionMethods;
+  method: TransactionMethods.CheckPerformTransaction;
   params: {
     amount: number;
     account: {
-      attendanceId?: number;
-      contractId?: string;
+      attendanceId: number,
+      contractId: string,
+      id: number
     };
   };
 }

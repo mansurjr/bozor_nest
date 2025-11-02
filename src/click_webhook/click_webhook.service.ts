@@ -58,11 +58,6 @@ export class ClickWebhookService {
     return ok;
   }
 
-  /**
-   * Prepare handler (action = 0)
-   * Returns shape:
-   * { click_trans_id, merchant_trans_id, merchant_prepare_id, error, error_note, sign_string? }
-   */
   async handlePrepare(clickData: any) {
     const {
       click_trans_id,
