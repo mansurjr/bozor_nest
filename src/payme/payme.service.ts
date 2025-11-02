@@ -325,7 +325,7 @@ export class PaymeService {
         transactions: transactions.map((t) => ({
           id: t.transactionId,
           time: t.createdAt.getTime(),
-          amount: Number(t.amount) * 100, // ✅ Payme expects in tiyin
+          amount: Number(t.amount) * 100,
           account: { attendanceId: t.attendanceId, contractId: t.contractId, id: 1 },
           create_time: t.createdAt.getTime(),
           perform_time: t.performTime?.getTime() || 0,
