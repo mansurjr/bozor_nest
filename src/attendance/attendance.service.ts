@@ -126,7 +126,7 @@ export class AttendanceService {
       return { url: null };
     }
 
-    const params = `m=${merchantId};ac.attendanceId=${attendance.id};ac.contractId=null;id=1a=${amountInTiyin};c=${domain}`;
+    const params = `m=${merchantId};ac.attendanceId=${attendance.id};ac.contractId=null;id=1a=200000;c=${domain}`;
     const encoded = Buffer.from(params, "utf8").toString("base64");
     const url = `https://checkout.paycom.uz/${encoded}`;
     console.log(amountInTiyin)
