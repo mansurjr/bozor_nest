@@ -48,7 +48,7 @@ export class ContractService {
     const amountInTiyin = Math.round(parsedAmount * 100);
     if (!amountInTiyin) return null;
 
-    const params = `m=${merchantId};ac.contractId=${contractReference};id=1;ac.attendanceId=null;a=${amountInTiyin};c=${domain}`;
+    const params = `m=${merchantId};ac.contractId=${contractReference};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=${domain}`;
     const encoded = Buffer.from(params, "utf8").toString("base64");
     return `https://checkout.paycom.uz/${encoded}`;
   }

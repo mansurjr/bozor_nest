@@ -4,6 +4,7 @@ import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
+import * as  base64 from "base-64"
 
 @Injectable()
 export class AttendanceService {
@@ -127,7 +128,7 @@ export class AttendanceService {
     }
 
     const params = `m=${merchantId};ac.id=1;ac.attendanceId=${attendance.id};ac.contractId=null;a=${amountInTiyin};c=https://myrent.uz/attendances`;
-    const encoded = Buffer.from(JSON.stringify(params)).toString("base64");
+    const encoded = base64.encode(params)
     const url = `https://checkout.paycom.uz/${encoded}`;
     console.log(amountInTiyin)
     console.log(amountValue)
