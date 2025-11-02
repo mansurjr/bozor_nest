@@ -18,7 +18,7 @@ type CheckResult =
 
 @Injectable()
 export class PaymeService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async handleTransactionMethods(reqBody: any) {
     switch (reqBody.method) {
@@ -35,13 +35,12 @@ export class PaymeService {
       case TransactionMethods.GetStatement:
         return this.getStatement(reqBody as GetStatementDto);
       default:
-        return 'Invalid transaction method';
-
+        return "Invalid transaction method";
     }
   }
 
   private checkTransactionExpiration(createdAt: Date) {
-    const timeoutMinutes = 720;
+    const timeoutMinutes = 720; // 12 hours
     const expirationDate = DateTime.now().minus({ minutes: timeoutMinutes }).toJSDate();
     return createdAt < expirationDate;
   }
@@ -159,8 +158,9 @@ export class PaymeService {
       };
     }
 
+    // Validate incoming Payme amount (should equal DB amount ×100)
     if (amount && Number(amount) !== entityAmount * 100) {
-      console.log(`[createTransaction] ❌ Amount mismatch for id=${id}: incoming=${amount}, expected=${entityAmount}`);
+      console.log(`[createTransaction] ❌ Amount mismatch for id=${id}: incoming=${amount}, expected=${entityAmount * 100}`);
       return { error: PaymeError.InvalidAmount, data: null };
     }
 
@@ -183,10 +183,10 @@ export class PaymeService {
       };
     }
 
-    // perform check
+    // Perform check
     const checkTransaction: CheckPerformTransactionDto = {
       method: TransactionMethods.CheckPerformTransaction,
-      params: { amount: entityAmount, account: { contractId: contractId || "", attendanceId: attendanceId || 0, id: 1 } },
+      params: { amount: entityAmount * 100, account: { contractId: contractId || "", attendanceId: attendanceId || 0, id: 1 } },
     };
     const checkResult = await this.checkPerformTransaction(checkTransaction);
     if ("error" in checkResult) return { error: checkResult.error, id };
@@ -194,7 +194,7 @@ export class PaymeService {
     const newTransaction = await this.prisma.transaction.create({
       data: {
         transactionId: id,
-        amount: new Prisma.Decimal(entityAmount),
+        amount: new Prisma.Decimal(entityAmount), // store in sums, not tiyin
         status: "PENDING",
         paymentMethod: "PAYME",
         performTime: null,
@@ -292,18 +292,31 @@ export class PaymeService {
         data: { status: "CANCELED", state: -1, cancelTime: new Date(), reason: reqBody.params.reason || 0 },
       });
       console.log(`[cancelTransaction] Transaction canceled: id=${transId}`);
-      return { result: { cancel_time: canceled.cancelTime?.getTime() || 0, transaction: canceled.transactionId, state: -1 } };
+      return {
+        result: {
+          cancel_time: canceled.cancelTime?.getTime() || 0,
+          transaction: canceled.transactionId,
+          state: -1,
+        },
+      };
     }
 
     return {
-      result: { cancel_time: transaction.cancelTime?.getTime() || 0, transaction: transaction.transactionId, state: -1 }
-    }
+      result: {
+        cancel_time: transaction.cancelTime?.getTime() || 0,
+        transaction: transaction.transactionId,
+        state: -1,
+      },
+    };
   }
 
   async getStatement(getStatementDto: GetStatementDto) {
     const { from, to } = getStatementDto.params;
     const transactions = await this.prisma.transaction.findMany({
-      where: { createdAt: { gte: new Date(from), lte: new Date(to) }, paymentMethod: "PAYME" },
+      where: {
+        createdAt: { gte: new Date(from), lte: new Date(to) },
+        paymentMethod: "PAYME",
+      },
       orderBy: { createdAt: "asc" },
     });
 
@@ -312,7 +325,7 @@ export class PaymeService {
         transactions: transactions.map((t) => ({
           id: t.transactionId,
           time: t.createdAt.getTime(),
-          amount: t.amount,
+          amount: Number(t.amount) * 100, // ✅ Payme expects in tiyin
           account: { attendanceId: t.attendanceId, contractId: t.contractId, id: 1 },
           create_time: t.createdAt.getTime(),
           perform_time: t.performTime?.getTime() || 0,
