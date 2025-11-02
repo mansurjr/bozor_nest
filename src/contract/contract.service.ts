@@ -50,6 +50,7 @@ export class ContractService {
 
     const params = `m=${merchantId};ac.contractId=${contractReference};id=1;ac.attendanceId=null;a=${amountInTiyin};c=${domain}`;
     const encoded = Buffer.from(params, "utf8").toString("base64");
+    console.log(amountInTiyin)
     return `https://checkout.paycom.uz/${encoded}`;
   }
 
