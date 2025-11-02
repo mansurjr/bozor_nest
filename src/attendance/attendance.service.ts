@@ -108,9 +108,9 @@ export class AttendanceService {
 
     if (this.config.get<string>("TENANT_ID") === "ipak_yuli") {
       const serviceId =
-        this.config.get("CLICK_SERVICE_ID") || process.env.CLICK_SERVICE_ID;
+        this.config.get("PAYMENT_SERVICE_ID") || process.env.PAYMENT_SERVICE_ID;
       const merchantId =
-        this.config.get("CLICK_MERCHANT_ID") || process.env.CLICK_MERCHANT_ID;
+        this.config.get("PAYMENT_MERCHANT_ID") || process.env.PAYMENT_MERCHANT_ID;
 
       url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${attendance.id}`;
     }

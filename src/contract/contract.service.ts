@@ -30,8 +30,8 @@ export class ContractService {
   private buildClickPaymentUrl(amount: string | null, transactionParam: string | number) {
     if (!amount) return null;
 
-    const serviceId = this.config.get<string>("CLICK_SERVICE_ID");
-    const merchantId = this.config.get<string>("CLICK_MERCHANT_ID");
+    const serviceId = this.config.get<string>("PAYMENT_SERVICE_ID");
+    const merchantId = this.config.get<string>("PAYMENT_MERCHANT_ID");
     if (!serviceId || !merchantId) return null;
 
     return `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${transactionParam}`;

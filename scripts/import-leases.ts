@@ -72,7 +72,7 @@ async function updateStorePaymentLinks(
   amount?: number,
 ): Promise<void> {
   const serviceId = process.env.CLICK_SERVICE_ID;
-  const merchantId = process.env.CLICK_MERCHANT_ID;
+  const merchantId = process.env.PAYMENT_MERCHANT_ID;
 
   if (!serviceId || !merchantId) {
     return;
