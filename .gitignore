@@ -2,7 +2,7 @@
 /dist
 /node_modules
 /build
-
+scripts/ipk1.xlsx
 # Logs
 logs
 *.log
