@@ -221,6 +221,7 @@ export class ContractService {
     const data = await this.prisma.contract.findMany({
       where,
       include: { owner: true, store: true, createdBy: true, transactions: true },
+      orderBy: {id: 'desc'},
       skip: (page - 1) * limit,
       take: limit,
     });

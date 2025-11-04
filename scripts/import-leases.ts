@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import process from 'node:process';
 import * as XLSX from 'xlsx';
 import { Prisma, PrismaClient } from '@prisma/client';
+import * as base64 from 'base-64';
 
 type ColumnKey = string;
 
@@ -86,7 +87,7 @@ async function updateStorePaymentLinks(
   if (!store) return;
 
   const amountValue =
-    amount !== undefined && amount !== null ? amount : 0;
+    amount !== undefined && amount !== null ? Number(amount) : 0;
 
   const clickUrl = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amountValue}&transaction_param=${store.storeNumber}`;
 
@@ -96,15 +97,24 @@ async function updateStorePaymentLinks(
 
   const tenantId = process.env.TENANT_ID;
   const paymentMerchantId = process.env.PAYMENT_MERCHANT_ID;
-  const myDomain = process.env.MY_DOMAIN;
-
   if (
     tenantId === 'ipak_yuli' &&
-    paymentMerchantId &&
-    myDomain
+    paymentMerchantId
   ) {
-    const encodedMerchant = Buffer.from(paymentMerchantId).toString('base64');
-    data.payme_payment_url = `https://checkout.paycom.uz/m=${encodedMerchant};acc.id=1;acc.contractId=${store.storeNumber};a=${amountValue};c=${myDomain}`;
+    const amountInTiyin = Math.max(0, Math.round(Number(amountValue) * 100));
+
+    if (amountInTiyin > 0) {
+      const params = [
+        `m=${paymentMerchantId}`,
+        `ac.contractId=${store.storeNumber}`,
+        'ac.id=1',
+        'ac.attendanceId=null',
+        `a=${amountInTiyin}`,
+        'c=https://myrent.uz/contracts',
+      ].join(';');
+      const encoded = base64.encode(params);
+      data.payme_payment_url = `https://checkout.paycom.uz/${encoded}`;
+    }
   }
 
   await prisma.store.update({
