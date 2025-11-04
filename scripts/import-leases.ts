@@ -104,15 +104,17 @@ async function updateStorePaymentLinks(
     const amountInTiyin = Math.max(0, Math.round(Number(amountValue) * 100));
 
     if (amountInTiyin > 0) {
-      const params = [
-        `m=${paymentMerchantId}`,
-        `ac.contractId=${store.storeNumber}`,
-        'ac.id=1',
-        'ac.attendanceId=null',
-        `a=${amountInTiyin}`,
-        'c=https://myrent.uz/contracts',
-      ].join(';');
-      const encoded = base64.encode(params);
+    const params = [
+      `m=${paymentMerchantId}`,
+      `ac.contractId=${store.storeNumber}`,
+      'ac.id=1',
+      'ac.attendanceId=null',
+      `a=${amountInTiyin}`,
+      'c=https://myrent.uz/contracts',
+    ].join(';');
+    const encoded = base64.encode(
+      Buffer.from(params, 'utf8').toString('latin1'),
+    );
       data.payme_payment_url = `https://checkout.paycom.uz/${encoded}`;
     }
   }

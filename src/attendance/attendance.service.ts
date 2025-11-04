@@ -128,7 +128,8 @@ export class AttendanceService {
     }
 
     const params = `m=${merchantId};ac.id=1;ac.attendanceId=${attendance.id};ac.contractId=null;a=${amountInTiyin};c=https://myrent.uz/attendances`;
-    const encoded = base64.encode(params)
+    const latinPayload = Buffer.from(params, "utf8").toString("latin1");
+    const encoded = base64.encode(latinPayload);
     const url = `https://checkout.paycom.uz/${encoded}`;
     console.log(amountInTiyin)
     console.log(amountValue)

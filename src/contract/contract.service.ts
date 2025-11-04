@@ -50,7 +50,8 @@ export class ContractService {
     if (!amountInTiyin) return null;
 
     const params = `m=${merchantId};ac.contractId=${contractReference};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=https://myrent.uz/contracts`;
-    const encoded = base64.encode(params);
+    const latinPayload = Buffer.from(params, "utf8").toString("latin1");
+    const encoded = base64.encode(latinPayload);
     return `https://checkout.paycom.uz/${encoded}`;
   }
 
