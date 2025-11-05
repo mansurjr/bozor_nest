@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Param } from '@nestjs/common';
+import { Controller, Get, Query, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiParam, ApiResponse } from '@nestjs/swagger';
 import { PublicService } from './public.service';
 import { GetContractsDto } from './dto/contracts.dto';
@@ -26,6 +26,18 @@ export class PublicController {
     return this.publicService.contract(query);
   }
 
+  @Get('contracts/:id')
+  @ApiOperation({
+    summary: 'Get public contract details',
+    description: 'Fetch contract, owner, store, and payment information by contract ID.',
+  })
+  @ApiParam({ name: 'id', type: Number, description: 'Contract ID' })
+  @ApiResponse({ status: 200, description: 'Contract details with payment info returned.' })
+  @ApiResponse({ status: 404, description: 'Contract not found' })
+  async getContractById(@Param('id', ParseIntPipe) id: number) {
+    return this.publicService.getContractDetails(id);
+  }
+
   @Get('stalls/:id')
   @ApiOperation({
     summary: 'Search stall payment info',
@@ -50,5 +62,17 @@ export class PublicController {
   @ApiResponse({ status: 404, description: 'No stalls found' })
   async getStall(@Param('id') id: string, @Query('date') date?: string) {
     return this.publicService.getStallStatus({ id, date });
+  }
+
+  @Post('contracts/:id/pay')
+  @ApiOperation({
+    summary: 'Generate contract payment link',
+    description: 'Ensures payment links are available for the specified contract and returns the Click/Payme URL.',
+  })
+  @ApiParam({ name: 'id', type: Number, description: 'Contract ID' })
+  @ApiResponse({ status: 200, description: 'Payment link generated successfully.' })
+  @ApiResponse({ status: 404, description: 'Contract or payment link not found.' })
+  async initiateContractPayment(@Param('id', ParseIntPipe) id: number) {
+    return this.publicService.initiateContractPayment(id);
   }
 }

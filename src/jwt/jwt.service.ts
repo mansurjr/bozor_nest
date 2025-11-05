@@ -1,5 +1,7 @@
 import { Injectable, UnauthorizedException, InternalServerErrorException } from "@nestjs/common";
 import { JwtService as NestJwtService } from "@nestjs/jwt";
+import type { JwtSignOptions } from "@nestjs/jwt";
+import type { StringValue } from "ms";
 import { ConfigService } from "@nestjs/config";
 import { Roles, User } from "@prisma/client";
 
@@ -43,12 +45,31 @@ export class JwtService {
       throw new InternalServerErrorException("JWT secrets are not configured");
     }
 
-    const accessTime = this.configService.get<string>("ACCESS_TIME") ?? "15m";
-    const refreshTime = this.configService.get<string>("REFRESH_TIME") ?? "7d";
+    const DEFAULT_ACCESS_EXPIRES: StringValue = "15m";
+    const DEFAULT_REFRESH_EXPIRES: StringValue = "7d";
+
+    const normalizeExpiresIn = (
+      raw: string | undefined,
+      fallback: StringValue,
+    ): JwtSignOptions["expiresIn"] => {
+      const value = raw?.trim();
+      if (value && /^\d+$/.test(value)) {
+        return Number(value);
+      }
+      return (value ?? fallback) as StringValue;
+    };
+    const accessExpiresIn = normalizeExpiresIn(
+      this.configService.get<string>("ACCESS_TIME"),
+      DEFAULT_ACCESS_EXPIRES,
+    );
+    const refreshExpiresIn = normalizeExpiresIn(
+      this.configService.get<string>("REFRESH_TIME"),
+      DEFAULT_REFRESH_EXPIRES,
+    );
 
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwt.signAsync(payload, { secret: accessSecret, expiresIn: +accessTime }),
-      this.jwt.signAsync(payload, { secret: refreshSecret, expiresIn: +refreshTime }),
+      this.jwt.signAsync(payload, { secret: accessSecret, expiresIn: accessExpiresIn }),
+      this.jwt.signAsync(payload, { secret: refreshSecret, expiresIn: refreshExpiresIn }),
     ]);
 
     return { accessToken, refreshToken };

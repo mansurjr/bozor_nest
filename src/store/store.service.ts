@@ -100,11 +100,21 @@ export class StoresService {
 
     const filtered = opts?.onlyFree ? withOccupation.filter((s: any) => !s.isOccupied) : withOccupation;
 
+    const resultTotal = opts?.onlyFree ? filtered.length : total;
+    const totalPages =
+      limit && limit > 0 ? Math.ceil(resultTotal / limit) : resultTotal > 0 ? 1 : 0;
+
     return {
-      total: opts?.onlyFree ? filtered.length : total,
+      data: filtered,
+      pagination: {
+        total: resultTotal,
+        page,
+        limit,
+        totalPages,
+      },
+      total: resultTotal,
       page,
       limit,
-      data: filtered,
     };
   }
 

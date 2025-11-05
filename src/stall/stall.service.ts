@@ -61,7 +61,21 @@ export class StallService {
       take: limit,
     });
 
-    return { total, page, limit, data };
+    const totalPages =
+      limit && limit > 0 ? Math.ceil(total / limit) : total > 0 ? 1 : 0;
+
+    return {
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+      total,
+      page,
+      limit,
+    };
   }
 
 

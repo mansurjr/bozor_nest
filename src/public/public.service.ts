@@ -1,11 +1,12 @@
-
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { GetContractsDto } from './dto/contracts.dto';
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 import { GetStallDto } from './dto/getPayInfo.dto';
+import * as base64 from 'base-64';
 dayjs.extend(isBetween);
 
 function normalizeStoreNumber(value?: string): string | undefined {
@@ -23,7 +24,146 @@ function normalizeTin(value?: string): string | undefined {
 
 @Injectable()
 export class PublicService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) { }
+
+  private getConfigValue(...keys: string[]): string | null {
+    for (const key of keys) {
+      if (!key) continue;
+      const value = this.config.get<string>(key) ?? process.env[key];
+      if (typeof value === 'string' && value.trim().length) {
+        return value.trim();
+      }
+    }
+    return null;
+  }
+
+  private normalizeAmount(amount?: Prisma.Decimal | number | string | null) {
+    if (amount === null || amount === undefined) return null;
+    if (amount instanceof Prisma.Decimal) return amount.toString();
+    if (typeof amount === 'number' && !Number.isNaN(amount)) return amount.toString();
+    if (typeof amount === 'string') {
+      const trimmed = amount.trim();
+      if (!trimmed) return null;
+      const parsed = Number(trimmed);
+      if (Number.isNaN(parsed)) return null;
+      return parsed.toString();
+    }
+    return null;
+  }
+
+  private buildClickPaymentUrl(amount: string | null, reference: string | number) {
+    if (!amount) return null;
+    const serviceId = this.getConfigValue('PAYMENT_SERVICE_ID', 'CLICK_SERVICE_ID');
+    const merchantId = this.getConfigValue('PAYMENT_MERCHANT_ID', 'CLICK_MERCHANT_ID');
+    if (!serviceId || !merchantId) return null;
+    return `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${reference}`;
+  }
+
+  private buildPaymePaymentUrl(amount: string | null, contractReference: string | number) {
+    if (!amount || this.config.get<string>('TENANT_ID') !== 'ipak_yuli') return null;
+
+    const merchantId = this.getConfigValue('PAYME_MERCHANT_ID');
+    if (!merchantId) return null;
+
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount)) return null;
+    const amountInTiyin = Math.round(parsedAmount * 100);
+    if (!amountInTiyin) return null;
+
+    const params = `m=${merchantId};ac.contractId=${contractReference};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=https://myrent.uz/contracts`;
+    const latinPayload = Buffer.from(params, 'utf8').toString('latin1');
+    const encoded = base64.encode(latinPayload);
+    return `https://checkout.paycom.uz/${encoded}`;
+  }
+
+  private hasValidPaymeUrl(url?: string | null) {
+    if (!url) return false;
+    if (!url.startsWith('https://checkout.paycom.uz/')) return false;
+    const payload = url.replace('https://checkout.paycom.uz/', '');
+    return payload.length > 0 && /^[A-Za-z0-9+/=]+$/.test(payload);
+  }
+
+  private async ensureStorePaymentLinks(contract: any) {
+    if (!contract?.store) return contract;
+
+    const amount = this.normalizeAmount(contract.shopMonthlyFee);
+    const storeNumber = contract.store.storeNumber ?? contract.storeId;
+
+    if (!amount || !storeNumber) return contract;
+
+    const needsClick = !contract.store.click_payment_url;
+    const needsPayme =
+      this.config.get<string>('TENANT_ID') === 'ipak_yuli' &&
+      !this.hasValidPaymeUrl(contract.store.payme_payment_url);
+
+    if (!needsClick && !needsPayme) return contract;
+
+    const updateData: Record<string, string> = {};
+
+    if (needsClick) {
+      const clickUrl = this.buildClickPaymentUrl(amount, storeNumber);
+      if (clickUrl) updateData.click_payment_url = clickUrl;
+    }
+
+    if (needsPayme) {
+      const paymeUrl = this.buildPaymePaymentUrl(amount, storeNumber);
+      if (paymeUrl) updateData.payme_payment_url = paymeUrl;
+    }
+
+    if (Object.keys(updateData).length) {
+      const updatedStore = await this.prisma.store.update({
+        where: { id: contract.storeId },
+        data: updateData,
+      });
+      contract.store = updatedStore;
+    }
+
+    return contract;
+  }
+
+  private toNumber(value: Prisma.Decimal | number | string | null | undefined): number | null {
+    if (value === null || value === undefined) return null;
+    if (value instanceof Prisma.Decimal) return value.toNumber();
+    if (typeof value === 'number') return Number.isNaN(value) ? null : value;
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  }
+
+  private buildContractPaymentInfo(contract: any) {
+    const amountString = this.normalizeAmount(contract.shopMonthlyFee);
+    const amount = amountString ? Number(amountString) : null;
+    const currency = amount ? 'UZS' : null;
+
+    const startOfMonth = dayjs().startOf('month');
+    const endOfMonth = dayjs().endOf('month');
+
+    const paid =
+      contract.transactions?.some(
+        (tx: any) =>
+          tx.status === 'PAID' &&
+          dayjs(tx.createdAt).isBetween(startOfMonth, endOfMonth, 'day', '[]'),
+      ) ?? false;
+
+    const paymentUrl =
+      contract.store?.click_payment_url ??
+      contract.store?.payme_payment_url ??
+      null;
+
+    return {
+      amount,
+      currency,
+      paid,
+      paymentUrl,
+      dueDate: endOfMonth.toISOString(),
+      periodLabel: dayjs().format('MMMM YYYY'),
+    };
+  }
 
   async contract(query: GetContractsDto) {
     const normalizedStoreNumber = normalizeStoreNumber(query.storeNumber);
@@ -78,26 +218,96 @@ export class PublicService {
       };
     }
 
+    const enrichedContracts = await Promise.all(
+      contracts.map((contract) => this.ensureStorePaymentLinks(contract)),
+    );
 
-    const startOfMonth = dayjs().startOf('month');
-    const endOfMonth = dayjs().endOf('month');
-
-    const result = contracts.map((contract) => {
-      const paidThisMonth = contract.transactions.some(
-        (tx) =>
-          tx.status === 'PAID' &&
-          dayjs(tx.createdAt).isBetween(startOfMonth, endOfMonth, 'day', '[]'),
-      );
-
-
+    const result = enrichedContracts.map((contract: any) => {
+      const paymentInfo = this.buildContractPaymentInfo(contract);
       const { transactions, ...rest } = contract;
-      return { ...rest, paid: paidThisMonth };
+      const normalizedMonthlyFee =
+        paymentInfo.amount ?? this.toNumber(rest.shopMonthlyFee) ?? rest.shopMonthlyFee;
+
+      return {
+        ...rest,
+        shopMonthlyFee: normalizedMonthlyFee,
+        paid: paymentInfo.paid,
+        paymentUrl: paymentInfo.paymentUrl,
+        payment: {
+          amountDue: paymentInfo.amount,
+          currency: paymentInfo.currency,
+          dueDate: paymentInfo.dueDate,
+          periodLabel: paymentInfo.periodLabel,
+          status: paymentInfo.paid ? 'PAID' : 'UNPAID',
+        },
+      };
     });
 
     return {
       count: result.length,
       data: result,
     };
+  }
+
+  async getContractDetails(id: number) {
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: {
+        owner: true,
+        store: true,
+        transactions: {
+          select: {
+            createdAt: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!contract) {
+      throw new NotFoundException(`Contract with id ${id} not found`);
+    }
+
+    const enriched = await this.ensureStorePaymentLinks(contract);
+    const paymentInfo = this.buildContractPaymentInfo(enriched);
+
+    const contractPayload = {
+      id: enriched.id,
+      certificateNumber: enriched.certificateNumber,
+      issueDate: enriched.issueDate,
+      expiryDate: enriched.expiryDate,
+      isActive: enriched.isActive,
+      storeId: enriched.storeId,
+      ownerId: enriched.ownerId,
+      shopMonthlyFee:
+        paymentInfo.amount ?? this.toNumber(enriched.shopMonthlyFee),
+      paid: paymentInfo.paid,
+    };
+
+    return {
+      contract: contractPayload,
+      owner: enriched.owner,
+      store: enriched.store,
+      payment: {
+        amountDue: paymentInfo.amount,
+        currency: paymentInfo.currency,
+        dueDate: paymentInfo.dueDate,
+        periodLabel: paymentInfo.periodLabel,
+        status: paymentInfo.paid ? 'PAID' : 'UNPAID',
+      },
+      paymentUrl: paymentInfo.paymentUrl,
+    };
+  }
+
+  async initiateContractPayment(id: number) {
+    const details = await this.getContractDetails(id);
+    if (!details.paymentUrl) {
+      throw new NotFoundException(
+        'Payment link is not configured for this contract',
+      );
+    }
+
+    return details;
   }
 
   async getStallStatus(query: GetStallDto) {

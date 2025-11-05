@@ -14,6 +14,17 @@ export class ContractService {
     private readonly config: ConfigService
   ) { }
 
+  private getConfigValue(...keys: string[]): string | null {
+    for (const key of keys) {
+      if (!key) continue;
+      const value = this.config.get<string>(key) ?? process.env[key];
+      if (typeof value === "string" && value.trim().length) {
+        return value.trim();
+      }
+    }
+    return null;
+  }
+
   private normalizeAmount(amount?: Prisma.Decimal | number | string | null) {
     if (amount === null || amount === undefined) return null;
     if (amount instanceof Prisma.Decimal) return amount.toString();
@@ -31,8 +42,8 @@ export class ContractService {
   private buildClickPaymentUrl(amount: string | null, transactionParam: string | number) {
     if (!amount) return null;
 
-    const serviceId = this.config.get<string>("PAYMENT_SERVICE_ID");
-    const merchantId = this.config.get<string>("PAYMENT_MERCHANT_ID");
+    const serviceId = this.getConfigValue("PAYMENT_SERVICE_ID", "CLICK_SERVICE_ID");
+    const merchantId = this.getConfigValue("PAYMENT_MERCHANT_ID", "CLICK_MERCHANT_ID");
     if (!serviceId || !merchantId) return null;
 
     return `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${transactionParam}`;
@@ -41,7 +52,7 @@ export class ContractService {
   private buildPaymePaymentUrl(amount: string | null, contractReference: string | number) {
     if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli") return null;
 
-    const merchantId = this.config.get<string>("PAYME_MERCHANT_ID") || process.env.PAYME_MERCHANT_ID;
+    const merchantId = this.getConfigValue("PAYME_MERCHANT_ID");
     if (!merchantId) return null;
 
     const parsedAmount = Number(amount);
@@ -231,7 +242,21 @@ export class ContractService {
       data.map((contract) => this.ensureStorePaymentLinks(contract)),
     );
 
-    return { total, page, limit, data: enriched };
+    const totalPages =
+      limit && limit > 0 ? Math.ceil(total / limit) : total > 0 ? 1 : 0;
+
+    return {
+      data: enriched,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+      total,
+      page,
+      limit,
+    };
   }
 
   async findOne(id: number) {
