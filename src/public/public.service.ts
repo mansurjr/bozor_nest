@@ -10,12 +10,15 @@ dayjs.extend(isBetween);
 
 function normalizeStoreNumber(value?: string): string | undefined {
   if (!value) return undefined;
-  return value.trim().replace(/\s+/g, '').replace(/,/g, '.');
+  const cleaned = value.trim().replace(/\s+/g, '');
+  if (!cleaned) return undefined;
+  return cleaned.replace(/[\/\\,]/g, '.');
 }
 
 function normalizeTin(value?: string): string | undefined {
   if (!value) return undefined;
-  return value.replace(/\s+/g, '').trim();
+  const digitsOnly = value.replace(/\D+/g, '');
+  return digitsOnly || undefined;
 }
 
 @Injectable()
@@ -34,8 +37,24 @@ export class PublicService {
 
 
     const where: Prisma.ContractWhereInput = {};
-    if (normalizedStoreNumber) where.store = { is: { storeNumber: normalizedStoreNumber } };
-    if (normalizedTin) where.owner = { is: { tin: normalizedTin } };
+    if (normalizedStoreNumber)
+      where.store = {
+        is: {
+          storeNumber: {
+            equals: normalizedStoreNumber,
+            mode: 'insensitive',
+          },
+        },
+      };
+    if (normalizedTin)
+      where.owner = {
+        is: {
+          tin: {
+            equals: normalizedTin,
+            mode: 'insensitive',
+          },
+        },
+      };
 
 
     const contracts = await this.prisma.contract.findMany({
@@ -53,7 +72,10 @@ export class PublicService {
     });
 
     if (!contracts.length) {
-      throw new BadRequestException('No contracts found for given parameters');
+      return {
+        count: 0,
+        data: [],
+      };
     }
 
 
