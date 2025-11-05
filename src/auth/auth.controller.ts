@@ -21,7 +21,7 @@ export class AuthController {
     return this.authService.signIn(dto, res);
   }
 
-  @UseGuards(JwtRefresh, JwtAuthGuard)
+  @UseGuards(JwtRefresh)
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token using refresh token cookie' })
   @ApiResponse({ status: 200, description: 'New access token issued.' })

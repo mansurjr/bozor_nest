@@ -11,12 +11,50 @@ async function bootstrap() {
   const globalPrefix = "api";
   app.setGlobalPrefix(globalPrefix);
 
+  const normalizeDomain = (value: string | undefined | null) => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return trimmed.startsWith("http") ? trimmed : `https://${trimmed}`;
+  };
+
+  const tenantOrigins = [
+    "https://myrent.uz",
+    "https://www.myrent.uz",
+    "https://rizq-baraka.myrent.uz",
+    "https://muzaffar-savdo.myrent.uz",
+    "https://istiqlol.myrent.uz",
+    "https://bogdod.myrent.uz",
+    "https://beshariq.myrent.uz",
+    "https://beshariq-turon.myrent.uz",
+    "https://test.myrent.uz",
+  ];
+
+  const otherOrigins = [
+    "https://myrent-front.vercel.app",
+    "https://myrent-front-2ytj097cp-barkamolvaliy-2769s-projects.vercel.app",
+    "http://localhost:5173",
+  ];
+
+  const envOrigin = normalizeDomain(process.env.MY_DOMAIN);
+  if (envOrigin) tenantOrigins.push(envOrigin);
+
+  const allowedOrigins = Array.from(new Set([...tenantOrigins, ...otherOrigins]));
+
   app.enableCors({
-    origin: ["https://myrent-front-2ytj097cp-barkamolvaliy-2769s-projects.vercel.app", "https://myrent-front.vercel.app", process.env.MY_DOMAIN!, "http://localhost:5173"],
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (allowedOrigins.includes(origin) || origin.endsWith(".myrent.uz")) {
+        return callback(null, true);
+      }
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-    allowHeaders: true,
+    allowedHeaders: "*",
     credentials: true,
-  })
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
