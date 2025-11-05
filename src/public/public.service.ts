@@ -9,11 +9,17 @@ import { GetStallDto } from './dto/getPayInfo.dto';
 import * as base64 from 'base-64';
 dayjs.extend(isBetween);
 
-function normalizeStoreNumber(value?: string): string | undefined {
-  if (!value) return undefined;
-  const cleaned = value.trim().replace(/\s+/g, '');
-  if (!cleaned) return undefined;
-  return cleaned.replace(/[\/\\,]/g, '.');
+function tokenizeStoreNumber(value?: string): string[] {
+  if (!value) return [];
+
+  const normalized = value.normalize('NFKC');
+
+  const parts = normalized
+    .split(/[^0-9A-Za-z\u0400-\u04FF]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  return Array.from(new Set(parts));
 }
 
 function normalizeTin(value?: string): string | undefined {
@@ -166,10 +172,10 @@ export class PublicService {
   }
 
   async contract(query: GetContractsDto) {
-    const normalizedStoreNumber = normalizeStoreNumber(query.storeNumber);
+    const storeTokens = tokenizeStoreNumber(query.storeNumber);
     const normalizedTin = normalizeTin(query.tin);
 
-    if (!normalizedStoreNumber && !normalizedTin) {
+    if (!storeTokens.length && !normalizedTin) {
       throw new BadRequestException(
         'At least one parameter (storeNumber or tin) must be provided',
       );
@@ -177,13 +183,15 @@ export class PublicService {
 
 
     const where: Prisma.ContractWhereInput = {};
-    if (normalizedStoreNumber)
+    if (storeTokens.length)
       where.store = {
         is: {
-          storeNumber: {
-            equals: normalizedStoreNumber,
-            mode: 'insensitive',
-          },
+          AND: storeTokens.map((token) => ({
+            storeNumber: {
+              contains: token,
+              mode: 'insensitive',
+            },
+          })),
         },
       };
     if (normalizedTin)
