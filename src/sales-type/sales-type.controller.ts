@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe, UseGuards, Query } from '@nestjs/common';
 import { SaleTypeService } from './sales-type.service';
 import { CreateSaleTypeDto } from './dto/create-sales-type.dto';
 import { UpdateSaleTypeDto } from './dto/update-sales-type.dto';
@@ -28,8 +28,16 @@ export class SaleTypeController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get all Sale Types' })
   @ApiResponse({ status: 200, description: 'List of Sale Types returned.' })
-  findAll() {
-    return this.saleTypeService.findAll();
+  findAll(
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.saleTypeService.findAll(
+      search,
+      page ? +page : undefined,
+      limit ? +limit : undefined,
+    );
   }
 
   @Get(':id')

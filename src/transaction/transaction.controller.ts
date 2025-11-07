@@ -26,13 +26,38 @@ export class TransactionsController {
   @ApiQuery({ name: 'search', required: false, description: 'Search by transactionId or status' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'status', required: false, description: 'Filter by status' })
+  @ApiQuery({ name: 'paymentMethod', required: false, description: 'Filter by payment method' })
+  @ApiQuery({ name: 'source', required: false, description: 'Filter by source (contract|attendance)' })
+  @ApiQuery({ name: 'dateFrom', required: false, description: 'Start date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'dateTo', required: false, description: 'End date (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'contractId', required: false, type: Number, description: 'Filter by contract ID' })
+  @ApiQuery({ name: 'attendanceId', required: false, type: Number, description: 'Filter by attendance ID' })
   @ApiResponse({ status: 200, description: 'Transactions returned.' })
   findAll(
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @Query('status') status?: string,
+    @Query('paymentMethod') paymentMethod?: string,
+    @Query('source') source?: 'contract' | 'attendance',
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('contractId') contractId?: number,
+    @Query('attendanceId') attendanceId?: number,
   ) {
-    return this.transactionsService.findAll(search, page ? +page : undefined, limit ? +limit : undefined);
+    return this.transactionsService.findAll({
+      search,
+      page: page ? +page : undefined,
+      limit: limit ? +limit : undefined,
+      status,
+      paymentMethod,
+      source,
+      dateFrom,
+      dateTo,
+      contractId: contractId ? +contractId : undefined,
+      attendanceId: attendanceId ? +attendanceId : undefined,
+    });
   }
 
   @Get(':id')

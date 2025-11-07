@@ -30,7 +30,7 @@ export class UserService {
   }
 
 
-  async findAll(currentUserId: number, search?: string, role?: Roles) {
+  async findAll(currentUserId: number, search?: string, role?: Roles, page = 1, limit = 10) {
     const where: any = { NOT: { id: currentUserId } };
 
     if (search) {
@@ -45,7 +45,29 @@ export class UserService {
       where.role = role;
     }
 
-    return this.prisma.user.findMany({ where });
+    const take = Math.max(1, Number(limit) || 10);
+    const currentPage = Math.max(1, Number(page) || 1);
+    const skip = (currentPage - 1) * take;
+
+    const [data, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return {
+      data,
+      pagination: {
+        total,
+        page: currentPage,
+        limit: take,
+        totalPages: Math.max(1, Math.ceil(total / take) || 1),
+      },
+    };
   }
 
 

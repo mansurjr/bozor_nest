@@ -35,9 +35,23 @@ export class UserController {
   @ApiOperation({ summary: 'Get all users with optional search and role filters' })
   @ApiQuery({ name: 'search', required: false, description: 'Search by name or email' })
   @ApiQuery({ name: 'role', required: false, enum: RoleEnum, description: 'Filter by role' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default 1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Page size (default 10)' })
   @ApiResponse({ status: 200, description: 'List of users returned.' })
-  findAll(@GetCurrentUser('id') id: number, @Query('search') search?: string, @Query('role') role?: RoleEnum,) {
-    return this.userService.findAll(id, search, role);
+  findAll(
+    @GetCurrentUser('id') id: number,
+    @Query('search') search?: string,
+    @Query('role') role?: RoleEnum,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.userService.findAll(
+      id,
+      search,
+      role,
+      page ? +page : undefined,
+      limit ? +limit : undefined,
+    );
   }
 
 
