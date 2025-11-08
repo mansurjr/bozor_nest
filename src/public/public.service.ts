@@ -78,6 +78,49 @@ export class PublicService {
     return `https://checkout.paycom.uz/${encoded}`;
   }
 
+  private buildAttendancePaymeUrl(amount: string | null, attendanceId: number) {
+    if (!amount || this.config.get<string>('TENANT_ID') !== 'ipak_yuli') return null;
+
+    const merchantId = this.getConfigValue('PAYME_MERCHANT_ID');
+    if (!merchantId) return null;
+
+    const parsedAmount = Number(amount);
+    if (!Number.isFinite(parsedAmount)) return null;
+    const amountInTiyin = Math.round(parsedAmount * 100);
+    if (!amountInTiyin) return null;
+
+    const params = `m=${merchantId};ac.id=1;ac.attendanceId=${attendanceId};ac.contractId=null;a=${amountInTiyin};c=https://myrent.uz/attendances`;
+    const latinPayload = Buffer.from(params, 'utf8').toString('latin1');
+    const encoded = base64.encode(latinPayload);
+    return `https://checkout.paycom.uz/${encoded}`;
+  }
+
+  private buildAttendancePaymentInfo(attendance: any) {
+    if (!attendance) return null;
+    const amountString = this.normalizeAmount(attendance.amount);
+    const amount = amountString ? Number(amountString) : null;
+    const clickUrl = this.buildClickPaymentUrl(amountString, attendance.id);
+    const paymeUrl = this.buildAttendancePaymeUrl(amountString, attendance.id);
+
+    const status =
+      attendance.status === 'PAID' ||
+      attendance.transaction?.status === 'PAID'
+        ? 'PAID'
+        : attendance.status || 'UNPAID';
+
+    return {
+      amount,
+      currency: amount ? 'UZS' : null,
+      status,
+      date: dayjs(attendance.date).format('YYYY-MM-DD'),
+      urls: {
+        click: clickUrl,
+        payme: paymeUrl,
+      },
+      paymentUrl: paymeUrl || clickUrl || null,
+    };
+  }
+
   private hasValidPaymeUrl(url?: string | null) {
     if (!url) return false;
     if (!url.startsWith('https://checkout.paycom.uz/')) return false;
@@ -176,15 +219,38 @@ export class PublicService {
 
 
     const where: Prisma.ContractWhereInput = {};
-    if (normalizedStoreNumber)
-      where.store = {
-        is: {
+    if (normalizedStoreNumber) {
+      const storeFilters: Prisma.StoreWhereInput = {
+        OR: [
+          {
+            storeNumber: {
+              equals: normalizedStoreNumber,
+              mode: 'insensitive',
+            },
+          },
+          {
+            storeNumber: {
+              contains: normalizedStoreNumber,
+              mode: 'insensitive',
+            },
+          },
+        ],
+      };
+
+      const compact = normalizedStoreNumber.replace(/[\s\-_.]/g, '');
+      if (compact && compact !== normalizedStoreNumber) {
+        storeFilters.OR?.push({
           storeNumber: {
-            equals: normalizedStoreNumber,
+            contains: compact,
             mode: 'insensitive',
           },
-        },
+        });
+      }
+
+      where.store = {
+        is: storeFilters,
       };
+    }
     if (normalizedTin)
       where.owner = {
         is: {
@@ -317,7 +383,8 @@ export class PublicService {
     }
 
     const targetDate = date ? dayjs(date).startOf('day') : dayjs().startOf('day');
-
+    const startOfDay = targetDate.startOf('day');
+    const endOfDay = targetDate.endOf('day');
 
     const stalls = await this.prisma.stall.findMany({
       where: {
@@ -329,9 +396,19 @@ export class PublicService {
       include: {
         attendances: {
           where: {
-            date: targetDate.toDate(),
+            date: {
+              gte: startOfDay.toDate(),
+              lte: endOfDay.toDate(),
+            },
+          },
+          include: {
+            transaction: true,
+          },
+          orderBy: {
+            createdAt: 'desc',
           },
         },
+        SaleType: true,
       },
     });
 
@@ -341,24 +418,48 @@ export class PublicService {
 
 
     const result = stalls.map((stall) => {
-      const todayAttendance = stall.attendances[0];
-      const paid = todayAttendance?.status === 'PAID';
+      const todayAttendance = stall.attendances[0] || null;
+      const paymentInfo = todayAttendance ? this.buildAttendancePaymentInfo(todayAttendance) : null;
+      const amountFromStall = this.toNumber(stall.dailyFee);
+
+      const paymentLinkAvailable =
+        paymentInfo && paymentInfo.status !== 'PAID' ? paymentInfo.paymentUrl : null;
+      const paymentLinks =
+        paymentInfo && paymentInfo.status !== 'PAID' ? paymentInfo.urls : null;
 
       return {
-        id: stall.id,
-        stallNumber: stall.stallNumber,
-        sectionId: stall.sectionId,
-        area: stall.area,
-        dailyFee: stall.dailyFee,
-        description: stall.description,
-        paid,
-        date: targetDate.format('YYYY-MM-DD'),
+        stall: {
+          id: stall.id,
+          stallNumber: stall.stallNumber,
+          sectionId: stall.sectionId,
+          area: stall.area,
+          saleTypeId: stall.saleTypeId,
+          description: stall.description,
+          dailyFee: amountFromStall,
+        },
+        attendance: todayAttendance
+          ? {
+              id: todayAttendance.id,
+              status: todayAttendance.status,
+              amount: this.toNumber(todayAttendance.amount),
+              date: dayjs(todayAttendance.date).format('YYYY-MM-DD'),
+            }
+          : null,
+        payment: paymentInfo || {
+          amountDue: amountFromStall,
+          currency: amountFromStall ? 'UZS' : null,
+          date: targetDate.format('YYYY-MM-DD'),
+          status: todayAttendance ? todayAttendance.status || 'UNPAID' : 'NO_ATTENDANCE',
+        },
+        paymentUrl: paymentLinkAvailable,
+        paymentUrls: paymentLinks,
       };
     });
 
     return {
       count: result.length,
       data: result,
+      date: targetDate.format('YYYY-MM-DD'),
     };
   }
 
