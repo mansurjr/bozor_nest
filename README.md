@@ -57,6 +57,26 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Generate default stalls
+
+Use the Prisma helper script to auto-create sequential stalls for every pavilion/section without touching each entry manually.
+
+```bash
+# preview the work
+$ npm run generate:stalls -- --saleTypeId=1 --area=12.5 --dry-run
+
+# actually write to the database (note the required --yes flag)
+$ npm run generate:stalls -- --saleTypeId=1 --area=12.5 --target=150 --yes
+```
+
+Key flags:
+
+- `--saleTypeId` and `--area` are required and become the defaults for all generated stalls.
+- `--target` represents the total stalls each section should have (script only tops up the missing amount, default 150).
+- `--sectionIds=1,2,3` limits execution to specific pavilions; omit to process every section.
+- `--prefixMap=./scripts/prefixes.json` lets you override the auto-generated stall number prefix per section (file should contain a simple JSON object where the key is a section id or name).
+- `--dry-run` shows the planned inserts, while `--yes` is required for actual writes—run both together to stay safe.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
