@@ -4,18 +4,48 @@ import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 import { Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
-import * as  base64 from "base-64"
+import * as base64 from 'base-64';
 
 @Injectable()
 export class AttendanceService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) { }
+
+  private roundCurrency(value?: number | null) {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return 0;
+    }
+    return Math.round(value * 100) / 100;
+  }
+
+  private calculateStallFee(stall: { area?: number | null; SaleType?: { tax?: number | null } | null }) {
+    const area = Number(stall?.area) || 0;
+    const tax = Number(stall?.SaleType?.tax) || 0;
+    return this.roundCurrency(area * tax);
+  }
+
+  private normalizeAttendanceAmount(amount?: Prisma.Decimal | number | string | null) {
+    let numeric = 0;
+    if (amount instanceof Prisma.Decimal) {
+      numeric = Number(amount.toString());
+    } else if (typeof amount === 'number') {
+      numeric = amount;
+    } else if (typeof amount === 'string') {
+      numeric = Number(amount);
+    }
+    const rounded = this.roundCurrency(Number.isFinite(numeric) ? numeric : 0);
+    return {
+      rounded,
+      formatted: rounded.toFixed(2),
+      tiyin: Math.round(rounded * 100),
+    };
+  }
 
   async create(dto: CreateAttendanceDto) {
     // Validate Stall exists
     const stall = await this.prisma.stall.findUnique({ where: { id: dto.stallId }, include: { SaleType: true } });
     if (!stall) throw new NotFoundException(`Stall with id ${dto.stallId} not found`);
 
-    const feeNum = (Number(stall.area) || 0) * (stall.SaleType ? Number(stall.SaleType.tax) || 0 : 0)
+    const feeNum = this.calculateStallFee(stall);
 
     return this.prisma.attendance.create({
       data: {
@@ -74,11 +104,11 @@ export class AttendanceService {
     const data: any = { ...dto };
     if (dto.date) data.date = new Date(dto.date);
     // Recompute amount based on target stall
-    const targetStallId = dto.stallId ?? existing.stallId
-    const stall = await this.prisma.stall.findUnique({ where: { id: targetStallId }, include: { SaleType: true } })
-    if (!stall) throw new NotFoundException(`Stall with id ${targetStallId} not found`)
-    const feeNum = (Number(stall.area) || 0) * (stall.SaleType ? Number(stall.SaleType.tax) || 0 : 0)
-    data.amount = new Prisma.Decimal(feeNum)
+    const targetStallId = dto.stallId ?? existing.stallId;
+    const stall = await this.prisma.stall.findUnique({ where: { id: targetStallId }, include: { SaleType: true } });
+    if (!stall) throw new NotFoundException(`Stall with id ${targetStallId} not found`);
+    const feeNum = this.calculateStallFee(stall);
+    data.amount = new Prisma.Decimal(feeNum);
 
     return this.prisma.attendance.update({
       where: { id },
@@ -102,10 +132,7 @@ export class AttendanceService {
 
   async getPayUrl(id: number, type: string) {
     const attendance = await this.findOne(id);
-    const amountRaw = attendance.amount ? attendance.amount.toString() : "0";
-    const amountNumber = Number(amountRaw);
-    const amountValue = Number.isFinite(amountNumber) ? amountNumber : 0;
-    const amountInTiyin = Math.round(amountValue * 100);
+    const amountInfo = this.normalizeAttendanceAmount(attendance.amount);
 
     if (type === "click") {
       const serviceId =
@@ -113,7 +140,7 @@ export class AttendanceService {
       const merchantId =
         this.config.get("PAYMENT_MERCHANT_ID") || process.env.PAYMENT_MERCHANT_ID;
 
-      const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amountValue}&transaction_param=${attendance.id}`;
+      const url = `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amountInfo.formatted}&transaction_param=${attendance.id}`;
       return { url };
     }
 
@@ -122,18 +149,14 @@ export class AttendanceService {
     }
 
     const merchantId = this.config.get<string>("PAYME_MERCHANT_ID") || process.env.PAYME_MERCHANT_ID;
-    const domain = this.config.get<string>("MY_DOMAIN") || process.env.MY_DOMAIN || "";
-    if (!merchantId || !amountInTiyin) {
+    if (!merchantId || !amountInfo.tiyin) {
       return { url: null };
     }
 
-    const params = `m=${merchantId};ac.id=1;ac.attendanceId=${attendance.id};ac.contractId=null;a=${amountInTiyin};c=https://myrent.uz/attendances`;
+    const params = `m=${merchantId};ac.id=1;ac.attendanceId=${attendance.id};ac.contractId=null;a=${amountInfo.tiyin};c=https://myrent.uz/attendances`;
     const latinPayload = Buffer.from(params, "utf8").toString("latin1");
     const encoded = base64.encode(latinPayload);
     const url = `https://checkout.paycom.uz/${encoded}`;
-    console.log(amountInTiyin)
-    console.log(amountValue)
-    console.log(Buffer.from(encoded, "base64").toString("utf-8"))
     return { url };
   }
 }

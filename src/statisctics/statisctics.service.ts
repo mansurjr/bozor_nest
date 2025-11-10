@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns';
-import { Transaction } from '@prisma/client';
+import { Transaction, Attendance } from '@prisma/client';
 
 type EntityType = 'stall' | 'store';
 
@@ -9,95 +9,114 @@ type EntityType = 'stall' | 'store';
 export class StatisticsService {
   constructor(private prisma: PrismaService) { }
 
+  private decimalToNumber(value?: any) {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const parsed = Number(value?.toString?.() ?? value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private sumTransactions(transactions: Transaction[]) {
+    return transactions.reduce((sum, t) => sum + this.decimalToNumber(t.amount), 0);
+  }
+
+  private sumAttendances(attendances: Attendance[]) {
+    return attendances.reduce((sum, item) => sum + this.decimalToNumber(item.amount), 0);
+  }
+
+  private async collectStallPayments(from: Date, to: Date) {
+    const [paidTransactions, manualAttendances] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: {
+          attendanceId: { not: null },
+          attendance: {
+            date: { gte: from, lte: to },
+          },
+          OR: [
+            { status: 'PAID' },
+            { attendance: { status: 'PAID' } },
+          ],
+        },
+      }),
+      this.prisma.attendance.findMany({
+        where: {
+          date: { gte: from, lte: to },
+          status: 'PAID',
+          transaction: { is: null },
+        },
+      }),
+    ]);
+
+    return {
+      count: paidTransactions.length + manualAttendances.length,
+      revenue: this.sumTransactions(paidTransactions) + this.sumAttendances(manualAttendances),
+    };
+  }
+
+  private async collectStorePayments(from: Date, to: Date) {
+    const storePayments = await this.prisma.transaction.findMany({
+      where: {
+        contract: { isActive: true },
+        createdAt: { gte: from, lte: to },
+        status: 'PAID',
+      },
+    });
+    return {
+      count: storePayments.length,
+      revenue: this.sumTransactions(storePayments),
+    };
+  }
+
   async getDailyStatistics(type?: EntityType) {
     const todayStart = startOfDay(new Date());
     const todayEnd = endOfDay(new Date());
 
-    let stallPayments: Transaction[] = [];
-    let storePayments: Transaction[] = [];
+    const stallResult = !type || type === 'stall'
+      ? await this.collectStallPayments(todayStart, todayEnd)
+      : { count: 0, revenue: 0 };
 
-    if (!type || type === 'stall') {
-      stallPayments = await this.prisma.transaction.findMany({
-        where: { attendance: { date: { gte: todayStart, lte: todayEnd }, status: 'PAID' } },
-      });
-    }
+    const storeResult = !type || type === 'store'
+      ? await this.collectStorePayments(todayStart, todayEnd)
+      : { count: 0, revenue: 0 };
 
-    if (!type || type === 'store') {
-      storePayments = await this.prisma.transaction.findMany({
-        where: {
-          contract: { isActive: true },
-          createdAt: { gte: todayStart, lte: todayEnd },
-          status: 'PAID',
-        },
-      });
-    }
-
-    const count = stallPayments.length + storePayments.length;
-    const revenue =
-      stallPayments.reduce((sum, t) => sum + Number(t.amount.toString()), 0) +
-      storePayments.reduce((sum, t) => sum + Number(t.amount.toString()), 0);
-
-    return { count, revenue };
+    return {
+      count: stallResult.count + storeResult.count,
+      revenue: stallResult.revenue + storeResult.revenue,
+    };
   }
 
   async getMonthlyStatistics(type?: EntityType) {
     const monthStart = startOfMonth(new Date());
     const monthEnd = endOfMonth(new Date());
 
-    let stallPayments: Transaction[] = [];
-    let storePayments: Transaction[] = [];
+    const stallResult = !type || type === 'stall'
+      ? await this.collectStallPayments(monthStart, monthEnd)
+      : { count: 0, revenue: 0 };
 
-    if (!type || type === 'stall') {
-      stallPayments = await this.prisma.transaction.findMany({
-        where: { attendance: { date: { gte: monthStart, lte: monthEnd }, status: 'PAID' } },
-      });
-    }
+    const storeResult = !type || type === 'store'
+      ? await this.collectStorePayments(monthStart, monthEnd)
+      : { count: 0, revenue: 0 };
 
-    if (!type || type === 'store') {
-      storePayments = await this.prisma.transaction.findMany({
-        where: {
-          contract: { isActive: true },
-          createdAt: { gte: monthStart, lte: monthEnd },
-          status: 'PAID',
-        },
-      });
-    }
-
-    const count = stallPayments.length + storePayments.length;
-    const revenue =
-      stallPayments.reduce((sum, t) => sum + Number(t.amount.toString()), 0) +
-      storePayments.reduce((sum, t) => sum + Number(t.amount.toString()), 0);
-
-    return { count, revenue };
+    return {
+      count: stallResult.count + storeResult.count,
+      revenue: stallResult.revenue + storeResult.revenue,
+    };
   }
 
   async getCurrentMonthIncome(type?: EntityType) {
     const monthStart = startOfMonth(new Date());
     const monthEnd = endOfMonth(new Date());
 
-    let stallPayments: Transaction[] = [];
-    let storePayments: Transaction[] = [];
+    const stallRevenue = !type || type === 'stall'
+      ? await this.collectStallPayments(monthStart, monthEnd)
+      : { revenue: 0 };
 
-    if (!type || type === 'stall') {
-      stallPayments = await this.prisma.transaction.findMany({
-        where: { attendance: { date: { gte: monthStart, lte: monthEnd }, status: 'PAID' } },
-      });
-    }
+    const storeRevenue = !type || type === 'store'
+      ? await this.collectStorePayments(monthStart, monthEnd)
+      : { revenue: 0 };
 
-    if (!type || type === 'store') {
-      storePayments = await this.prisma.transaction.findMany({
-        where: {
-          contract: { isActive: true },
-          createdAt: { gte: monthStart, lte: monthEnd },
-          status: 'PAID',
-        },
-      });
-    }
-
-    const revenue =
-      stallPayments.reduce((sum, t) => sum + Number(t.amount.toString()), 0) +
-      storePayments.reduce((sum, t) => sum + Number(t.amount.toString()), 0);
-
-    return { revenue };
+    return {
+      revenue: (stallRevenue.revenue || 0) + (storeRevenue.revenue || 0),
+    };
   }
 }
