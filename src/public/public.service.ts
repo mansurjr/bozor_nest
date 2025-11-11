@@ -192,10 +192,11 @@ export class PublicService {
           dayjs(tx.createdAt).isBetween(startOfMonth, endOfMonth, 'day', '[]'),
       ) ?? false;
 
+    const tenantId = this.config.get<string>('TENANT_ID');
     const paymentUrl =
-      contract.store?.click_payment_url ??
-      contract.store?.payme_payment_url ??
-      null;
+      tenantId === 'ipak_yuli'
+        ? (contract.store?.payme_payment_url ?? null)
+        : (contract.store?.click_payment_url ?? contract.store?.payme_payment_url ?? null);
 
     return {
       amount,

@@ -96,7 +96,8 @@ async function updateStorePaymentLinks(
   };
 
   const tenantId = process.env.TENANT_ID;
-  const paymentMerchantId = process.env.PAYMENT_MERCHANT_ID;
+  // Use the correct Payme merchant id for Ipak Yo'li
+  const paymentMerchantId = process.env.PAYME_MERCHANT_ID || process.env.PAYMENT_MERCHANT_ID;
   if (
     tenantId === 'ipak_yuli' &&
     paymentMerchantId
