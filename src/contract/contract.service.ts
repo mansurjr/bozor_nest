@@ -297,7 +297,16 @@ export class ContractService {
   }
 
   async getHistory(id: number, limit = 30) {
-    await this.findOne(id);
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: {
+        owner: true,
+        store: true,
+      },
+    });
+    if (!contract) {
+      throw new NotFoundException(`Contract with id ${id} not found`);
+    }
     const cap = Math.max(1, Math.min(200, Number(limit) || 30));
     const transactions = await this.prisma.transaction.findMany({
       where: { contractId: id },
@@ -308,20 +317,32 @@ export class ContractService {
     const summary = transactions.reduce(
       (acc, tx) => {
         if (tx.status === "PAID") {
-          acc.paidCount += 1;
-          acc.paidAmount += Number((tx.amount && tx.amount.toString()) || 0);
+          acc.paid += 1;
+          acc.amountPaid += Number((tx.amount && tx.amount.toString()) || 0);
+        } else {
+          acc.pending += 1;
         }
         return acc;
       },
-      { paidCount: 0, paidAmount: 0 }
+      { paid: 0, pending: 0, amountPaid: 0 }
     );
 
     return {
       contractId: id,
       limit: cap,
       total: transactions.length,
-      paidCount: summary.paidCount,
-      paidAmount: summary.paidAmount,
+      summary,
+      owner: {
+        id: contract.ownerId,
+        name: contract.owner?.fullName,
+        tin: contract.owner?.tin,
+      },
+      store: {
+        id: contract.storeId,
+        number: contract.store?.storeNumber,
+        description: contract.store?.description,
+      },
+      monthlyFee: contract.shopMonthlyFee,
       transactions,
     };
   }

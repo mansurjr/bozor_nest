@@ -85,7 +85,7 @@ export class AttendanceService {
   async findOne(id: number) {
     const attendance = await this.prisma.attendance.findUnique({
       where: { id },
-      include: { Stall: true, transaction: true },
+      include: { Stall: { include: { Section: true, SaleType: true } }, transaction: true },
     });
     if (!attendance) throw new NotFoundException(`Attendance with id ${id} not found`);
     return attendance;
@@ -162,15 +162,53 @@ export class AttendanceService {
         stallId: attendance.stallId,
         date: { gte: cutoff },
       },
-      include: { Stall: true, transaction: true },
+      include: {
+        Stall: {
+          include: {
+            Section: true,
+            SaleType: true,
+          },
+        },
+        transaction: true,
+      },
       orderBy: { date: 'desc' },
       take: lookBackDays,
     });
 
+    const summary = items.reduce(
+      (acc, item) => {
+        const amount = Number((item.amount && item.amount.toString()) || 0);
+        if (item.status === AttendancePayment.PAID || item.transaction?.status === 'PAID') {
+          acc.paid += 1;
+          acc.amountPaid += amount;
+        } else {
+          acc.unpaid += 1;
+          acc.amountUnpaid += amount;
+        }
+        return acc;
+      },
+      { paid: 0, unpaid: 0, amountPaid: 0, amountUnpaid: 0 },
+    );
+
+    const stallDetails = await this.prisma.stall.findUnique({
+      where: { id: attendance.stallId },
+      include: {
+        Section: true,
+        SaleType: true,
+      },
+    });
+
     return {
       stallId: attendance.stallId,
+      stallInfo: {
+        number: stallDetails?.stallNumber,
+        description: stallDetails?.description,
+        sectionName: stallDetails?.Section?.name,
+        saleType: stallDetails?.SaleType?.name,
+      },
       total: items.length,
       days: lookBackDays,
+      summary,
       items,
     };
   }
