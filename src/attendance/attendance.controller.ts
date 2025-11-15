@@ -44,6 +44,21 @@ export class AttendanceController {
     });
   }
 
+  @Get(':id/history')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get attendance history for the same stall' })
+  @ApiQuery({ name: 'days', required: false, description: 'Number of days to look back (default 30)' })
+  history(@Param('id', ParseIntPipe) id: number, @Query('days') days?: string) {
+    return this.attendanceService.getHistory(id, days ? Number(days) : undefined);
+  }
+
+  @Get(':id/refresh')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Force refresh of attendance payment status' })
+  refresh(@Param('id', ParseIntPipe) id: number) {
+    return this.attendanceService.refreshStatus(id);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get attendance by ID' })

@@ -45,6 +45,21 @@ export class ContractController {
     return this.contractService.findOne(id);
   }
 
+  @Get(':id/history')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get contract payment history' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Max history items (default 30)' })
+  history(@Param('id', ParseIntPipe) id: number, @Query('limit') limit?: string) {
+    return this.contractService.getHistory(id, limit ? Number(limit) : undefined);
+  }
+
+  @Get(':id/refresh')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Refresh contract with latest payment info' })
+  refresh(@Param('id', ParseIntPipe) id: number) {
+    return this.contractService.refresh(id);
+  }
+
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Update contract by ID' })

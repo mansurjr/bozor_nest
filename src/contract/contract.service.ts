@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
@@ -128,6 +128,28 @@ export class ContractService {
       where: { id: storeId },
       data: updateData,
     });
+  }
+
+  private getCurrentMonthWindow(reference = new Date()) {
+    const start = new Date(reference.getFullYear(), reference.getMonth(), 1);
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + 1);
+    return { start, end };
+  }
+
+  private async hasPaidThisMonth(contractId: number) {
+    const { start, end } = this.getCurrentMonthWindow();
+    const existing = await this.prisma.transaction.findFirst({
+      where: {
+        contractId,
+        status: "PAID",
+        createdAt: {
+          gte: start,
+          lt: end,
+        },
+      },
+    });
+    return Boolean(existing);
   }
 
   private isOverlap(
@@ -274,8 +296,48 @@ export class ContractService {
     return this.ensureStorePaymentLinks(contract);
   }
 
+  async getHistory(id: number, limit = 30) {
+    await this.findOne(id);
+    const cap = Math.max(1, Math.min(200, Number(limit) || 30));
+    const transactions = await this.prisma.transaction.findMany({
+      where: { contractId: id },
+      orderBy: { createdAt: "desc" },
+      take: cap,
+    });
+
+    const summary = transactions.reduce(
+      (acc, tx) => {
+        if (tx.status === "PAID") {
+          acc.paidCount += 1;
+          acc.paidAmount += Number((tx.amount && tx.amount.toString()) || 0);
+        }
+        return acc;
+      },
+      { paidCount: 0, paidAmount: 0 }
+    );
+
+    return {
+      contractId: id,
+      limit: cap,
+      total: transactions.length,
+      paidCount: summary.paidCount,
+      paidAmount: summary.paidAmount,
+      transactions,
+    };
+  }
+
+  async refresh(id: number) {
+    return this.findOne(id);
+  }
+
   async update(id: number, dto: UpdateContractDto) {
     const contract = await this.findOne(id);
+
+    if (await this.hasPaidThisMonth(contract.id)) {
+      throw new BadRequestException(
+        "This contract has an active payment for the current month and cannot be modified until next month."
+      );
+    }
 
     const data: any = { ...dto };
     if (dto.issueDate) data.issueDate = new Date(dto.issueDate);

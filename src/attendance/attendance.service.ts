@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
-import { Prisma } from '@prisma/client';
+import { Prisma, AttendancePayment } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import * as base64 from 'base-64';
 
@@ -128,7 +128,52 @@ export class AttendanceService {
     return this.prisma.attendance.delete({ where: { id } });
   }
 
+  private async syncAttendanceWithTransactions(attendance: any) {
+    if (!attendance) return attendance;
+    if (attendance.status === 'PAID') return attendance;
 
+    const latestPaidTx = await this.prisma.transaction.findFirst({
+      where: { attendanceId: attendance.id, status: 'PAID' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!latestPaidTx) return attendance;
+
+    return this.prisma.attendance.update({
+      where: { id: attendance.id },
+      data: { status: AttendancePayment.PAID, transactionId: latestPaidTx.id },
+      include: { Stall: true, transaction: true },
+    });
+  }
+
+  async refreshStatus(id: number) {
+    const attendance = await this.findOne(id);
+    return this.syncAttendanceWithTransactions(attendance);
+  }
+
+  async getHistory(id: number, days = 30) {
+    const attendance = await this.findOne(id);
+    const lookBackDays = Number.isFinite(days) && days > 0 ? days : 30;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - (lookBackDays - 1));
+    cutoff.setHours(0, 0, 0, 0);
+
+    const items = await this.prisma.attendance.findMany({
+      where: {
+        stallId: attendance.stallId,
+        date: { gte: cutoff },
+      },
+      include: { Stall: true, transaction: true },
+      orderBy: { date: 'desc' },
+      take: lookBackDays,
+    });
+
+    return {
+      stallId: attendance.stallId,
+      total: items.length,
+      days: lookBackDays,
+      items,
+    };
+  }
 
   async getPayUrl(id: number, type: string) {
     const attendance = await this.findOne(id);
