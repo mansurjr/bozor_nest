@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, ParseIntPipe, UseGuards, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { ContractService } from './contract.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
@@ -6,8 +6,6 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@ne
 import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { GetCurrentUser } from '../common/decorators/getCurrentUserid';
 import { ContractPaymentPeriodsService } from './contract-payment.service';
-import { CreatePaymentPeriodDto } from './dto/create-payment-period.dto';
-import { UpdatePaymentPeriodDto } from './dto/update-payment-period.dto';
 
 @ApiTags('Contracts')
 @ApiBearerAuth()
@@ -71,38 +69,6 @@ export class ContractController {
   @ApiOperation({ summary: 'List payment periods for a contract' })
   listPayments(@Param('id', ParseIntPipe) id: number) {
     return this.contractPayments.listPayments(id);
-  }
-
-  @Post(':id/payments')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Create one or more payment periods' })
-  addPayments(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: CreatePaymentPeriodDto,
-    @GetCurrentUser('id') userId: number,
-  ) {
-    return this.contractPayments.createManual(id, dto, userId);
-  }
-
-  @Patch(':id/payments/:paymentId')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Update a payment period status or metadata' })
-  updatePayment(
-    @Param('id', ParseIntPipe) id: number,
-    @Param('paymentId', ParseIntPipe) paymentId: number,
-    @Body() dto: UpdatePaymentPeriodDto,
-  ) {
-    return this.contractPayments.updatePayment(id, paymentId, dto);
-  }
-
-  @Delete(':id/payments/:paymentId')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Delete a payment period' })
-  deletePayment(
-    @Param('id', ParseIntPipe) id: number,
-    @Param('paymentId', ParseIntPipe) paymentId: number,
-  ) {
-    return this.contractPayments.removePayment(id, paymentId);
   }
 
   @Put(':id')

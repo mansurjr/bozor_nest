@@ -1,8 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ContractPaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreatePaymentPeriodDto } from './dto/create-payment-period.dto';
-import { UpdatePaymentPeriodDto } from './dto/update-payment-period.dto';
 
 type ContractMinimal = {
   id: number;
@@ -115,65 +113,6 @@ export class ContractPaymentPeriodsService {
       items,
       snapshot,
     };
-  }
-
-  async createManual(contractId: number, dto: CreatePaymentPeriodDto, createdById?: number) {
-    const contract = await this.getContract(contractId);
-    const months = this.clampMonths(dto.months);
-    const amount =
-      dto.amount !== undefined && dto.amount !== null
-        ? new Prisma.Decimal(dto.amount)
-        : contract.shopMonthlyFee ?? null;
-    const status = dto.status ?? ContractPaymentStatus.PAID;
-    const baseStart = dto.periodStart
-      ? this.startOfMonth(new Date(dto.periodStart))
-      : await this.resolveNextStart(contract.id, this.fallbackStart(contract));
-
-    await this.createSequentialPeriods({
-      contract,
-      start: baseStart,
-      months,
-      amount,
-      status,
-      transactionId: dto.transactionId,
-      createdById,
-      notes: dto.notes,
-    });
-    return this.listPayments(contractId);
-  }
-
-  async updatePayment(contractId: number, paymentId: number, dto: UpdatePaymentPeriodDto) {
-    const payment = await this.prisma.contractPaymentPeriod.findUnique({
-      where: { id: paymentId },
-    });
-    if (!payment || payment.contractId !== contractId) {
-      throw new NotFoundException(`Payment period ${paymentId} not found for this contract`);
-    }
-
-    const data: Prisma.ContractPaymentPeriodUpdateInput = {};
-    if (dto.status) data.status = dto.status;
-    if (dto.notes !== undefined) data.notes = dto.notes;
-    if (dto.transactionId !== undefined) {
-      if (dto.transactionId === null) data.transaction = { disconnect: true };
-      else data.transaction = { connect: { id: dto.transactionId } };
-    }
-
-    await this.prisma.contractPaymentPeriod.update({
-      where: { id: paymentId },
-      data,
-    });
-    return this.listPayments(contractId);
-  }
-
-  async removePayment(contractId: number, paymentId: number) {
-    const payment = await this.prisma.contractPaymentPeriod.findUnique({
-      where: { id: paymentId },
-    });
-    if (!payment || payment.contractId !== contractId) {
-      throw new NotFoundException(`Payment period ${paymentId} not found for this contract`);
-    }
-    await this.prisma.contractPaymentPeriod.delete({ where: { id: paymentId } });
-    return this.listPayments(contractId);
   }
 
   async recordPaidTransaction(transactionId: number) {
@@ -297,4 +236,3 @@ export class ContractPaymentPeriodsService {
     return snapshotMap;
   }
 }
-
