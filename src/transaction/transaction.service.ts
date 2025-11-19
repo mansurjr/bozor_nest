@@ -4,13 +4,21 @@ import { Prisma, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
+import { ContractPaymentPeriodsService } from '../contract/contract-payment.service';
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly contractPayments: ContractPaymentPeriodsService,
+  ) {}
 
   async create(dto: CreateTransactionDto) {
-    return this.prisma.transaction.create({ data: dto });
+    const created = await this.prisma.transaction.create({ data: dto });
+    if (created.contractId && created.status === 'PAID') {
+      await this.contractPayments.recordPaidTransaction(created.id);
+    }
+    return created;
   }
 
   async findAll(params: {
@@ -172,11 +180,19 @@ export class TransactionsService {
   }
 
   async update(id: number, dto: UpdateTransactionDto) {
-    await this.findOne(id);
-    return this.prisma.transaction.update({
+    const existing = await this.findOne(id);
+    const updated = await this.prisma.transaction.update({
       where: { id },
       data: dto,
     });
+    if (
+      updated.contractId &&
+      updated.status === 'PAID' &&
+      existing.status !== 'PAID'
+    ) {
+      await this.contractPayments.recordPaidTransaction(updated.id);
+    }
+    return updated;
   }
 
   async remove(id: number) {

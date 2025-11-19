@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
+import { ContractPaymentPeriodsService } from '../contract/contract-payment.service';
 
 @Injectable()
 export class ClickWebhookService {
@@ -11,6 +12,7 @@ export class ClickWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly contractPayments: ContractPaymentPeriodsService,
   ) { }
 
 
@@ -323,6 +325,9 @@ export class ClickWebhookService {
           where: { id: transaction.id },
           data: { status: 'PAID', paymentMethod: 'CLICK' },
         });
+        if (transaction.contractId) {
+          await this.contractPayments.recordPaidTransaction(transaction.id);
+        }
 
 
         if (transaction.attendanceId) {

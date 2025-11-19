@@ -24,6 +24,7 @@ model User {
   createdContracts Contract[]
   createdOwners    Owner[]
   Section          Section[]
+  contractPayments ContractPaymentPeriod[]
 }
 
 // ==================== OWNERS ====================
@@ -92,6 +93,27 @@ model Contract {
   owner             Owner         @relation(fields: [ownerId], references: [id])
   store             Store         @relation(fields: [storeId], references: [id])
   transactions      Transaction[]
+  paymentPeriods    ContractPaymentPeriod[]
+}
+
+model ContractPaymentPeriod {
+  id            Int                     @id @default(autoincrement())
+  contractId    Int
+  periodStart   DateTime
+  periodEnd     DateTime
+  status        ContractPaymentStatus   @default(PAID)
+  amount        Decimal?
+  transactionId Int?
+  createdById   Int?
+  notes         String?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  contract      Contract                @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  transaction   Transaction?            @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  createdBy     User?                   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([contractId, periodStart])
 }
 
 // ==================== ATTENDANCE ====================
@@ -125,6 +147,7 @@ model Transaction {
   attendanceId Int?        @unique
   attendance   Attendance? @relation("AttendanceTransaction", fields: [attendanceId], references: [id])
   contract     Contract?   @relation(fields: [contractId], references: [id])
+  paymentPeriods ContractPaymentPeriod[]
 
   prepareId   Int?
   performTime DateTime?
@@ -182,6 +205,12 @@ enum PaymentMethod {
   PAYME
   CLICK
   CASH
+}
+
+enum ContractPaymentStatus {
+  PENDING
+  PAID
+  REVERSED
 }
 
 enum AttendancePayment {

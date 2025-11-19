@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStallDto } from './dto/create-stall.dto';
 import { UpdateStallDto } from './dto/update-stall.dto';
-import { Prisma, SaleType } from '@prisma/client';
+import { AttendancePayment, Prisma, SaleType } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
@@ -124,6 +124,57 @@ export class StallService {
     await this.findOne(id);
     return this.prisma.stall.delete({ where: { id } });
   }
+
+  async getHistory(id: number, days = 30) {
+    const stall = await this.prisma.stall.findUnique({
+      where: { id },
+      include: { SaleType: true, Section: true },
+    });
+    if (!stall) throw new NotFoundException(`Stall with id ${id} not found`);
+
+    const lookBackDays = Math.max(1, Math.min(120, Number(days) || 30));
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - (lookBackDays - 1));
+    cutoff.setHours(0, 0, 0, 0);
+
+    const attendances = await this.prisma.attendance.findMany({
+      where: {
+        stallId: id,
+        date: { gte: cutoff },
+      },
+      include: { transaction: true },
+      orderBy: { date: 'desc' },
+      take: lookBackDays,
+    });
+
+    const summary = attendances.reduce(
+      (acc, attendance) => {
+        const amount = Number(attendance.amount?.toString() ?? 0);
+        const paid =
+          attendance.status === AttendancePayment.PAID ||
+          attendance.transaction?.status === 'PAID';
+        if (paid) {
+          acc.paidDays += 1;
+          acc.paidAmount += amount;
+        } else {
+          acc.unpaidDays += 1;
+          acc.unpaidAmount += amount;
+        }
+        return acc;
+      },
+      { paidDays: 0, unpaidDays: 0, paidAmount: 0, unpaidAmount: 0 },
+    );
+
+    return {
+      stall,
+      days: lookBackDays,
+      rangeStart: cutoff,
+      total: attendances.length,
+      summary,
+      items: attendances,
+    };
+  }
+
   async checkStallNumber(stallNumber: string) {
     const exists = await this.prisma.stall.findUnique({
       where: { stallNumber },

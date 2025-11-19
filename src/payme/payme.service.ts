@@ -11,6 +11,7 @@ import { PaymeError } from "../common/types/payme-error";
 import { Attendance, AttendancePayment, Prisma, Store } from "@prisma/client";
 import { checkAttendance, checkStore } from "./utils";
 import { DateTime } from "luxon";
+import { ContractPaymentPeriodsService } from "../contract/contract-payment.service";
 
 type CheckResult =
   | { error: { code: number; message: { ru: string; en: string; uz: string } }; data: null }
@@ -18,7 +19,10 @@ type CheckResult =
 
 @Injectable()
 export class PaymeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly contractPayments: ContractPaymentPeriodsService,
+  ) {}
 
   async handleTransactionMethods(reqBody: any) {
     switch (reqBody.method) {
@@ -245,6 +249,10 @@ export class PaymeService {
       where: { id: transaction.id },
       data: { status: "PAID", state: 2, performTime: new Date() },
     });
+
+    if (updatedTransaction.contractId) {
+      await this.contractPayments.recordPaidTransaction(updatedTransaction.id);
+    }
 
     if (updatedTransaction.attendanceId) {
       await this.prisma.attendance.update({

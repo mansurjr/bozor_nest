@@ -2,16 +2,18 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
-import { Prisma } from "@prisma/client";
+import { ContractPaymentStatus, Prisma } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
 import * as base64 from "base-64";
+import { ContractPaymentPeriodsService } from "./contract-payment.service";
 
 
 @Injectable()
 export class ContractService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    private readonly contractPayments: ContractPaymentPeriodsService,
   ) { }
 
   private getConfigValue(...keys: string[]): string | null {
@@ -131,14 +133,23 @@ export class ContractService {
   }
 
   private getCurrentMonthWindow(reference = new Date()) {
-    const start = new Date(reference.getFullYear(), reference.getMonth(), 1);
+    const start = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), 1));
     const end = new Date(start);
-    end.setMonth(end.getMonth() + 1);
+    end.setUTCMonth(end.getUTCMonth() + 1);
     return { start, end };
   }
 
   private async hasPaidThisMonth(contractId: number) {
     const { start, end } = this.getCurrentMonthWindow();
+    const period = await this.prisma.contractPaymentPeriod.findFirst({
+      where: {
+        contractId,
+        periodStart: start,
+        status: ContractPaymentStatus.PAID,
+      },
+    });
+    if (period) return true;
+
     const existing = await this.prisma.transaction.findFirst({
       where: {
         contractId,
@@ -264,6 +275,18 @@ export class ContractService {
       data.map((contract) => this.ensureStorePaymentLinks(contract)),
     );
 
+    const snapshots = await this.contractPayments.getSnapshotsForContracts(
+      data.map((c) => ({
+        id: c.id,
+        issueDate: c.issueDate,
+        createdAt: c.createdAt,
+        shopMonthlyFee: c.shopMonthlyFee,
+      })) as any,
+    );
+    for (const contract of enriched) {
+      (contract as any).paymentSnapshot = snapshots.get(contract.id) ?? null;
+    }
+
     const totalPages =
       limit && limit > 0 ? Math.ceil(total / limit) : total > 0 ? 1 : 0;
 
@@ -293,7 +316,15 @@ export class ContractService {
     });
     if (!contract)
       throw new NotFoundException(`Contract with id ${id} not found`);
-    return this.ensureStorePaymentLinks(contract);
+    const enriched = await this.ensureStorePaymentLinks(contract);
+    const snapshot = await this.contractPayments.getSnapshotForContract({
+      id: enriched.id,
+      issueDate: enriched.issueDate,
+      createdAt: enriched.createdAt,
+      shopMonthlyFee: enriched.shopMonthlyFee,
+    } as any);
+    (enriched as any).paymentSnapshot = snapshot;
+    return enriched;
   }
 
   async getHistory(id: number, limit = 30) {

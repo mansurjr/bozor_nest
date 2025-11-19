@@ -77,6 +77,15 @@ export class StallController {
     return this.stallService.findOne(id);
   }
 
+  @Get(':id/history')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get recent attendance history for a stall' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiQuery({ name: 'days', required: false, description: 'How many past days to include', example: 30 })
+  history(@Param('id', ParseIntPipe) id: number, @Query('days') days?: string) {
+    return this.stallService.getHistory(id, days ? Number(days) : 30);
+  }
+
   @Patch(':id')
   @RolesDecorator('ADMIN', 'SUPERADMIN')
   @UseGuards(JwtAuthGuard, RolesGuard)
