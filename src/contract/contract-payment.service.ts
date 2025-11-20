@@ -48,7 +48,8 @@ export class ContractPaymentPeriodsService {
     return contract;
   }
 
-  private fallbackStart(contract: ContractMinimal) {
+  private fallbackStart(contract: ContractMinimal, reference?: Date | null) {
+    if (reference) return this.startOfMonth(reference);
     return this.startOfMonth(contract.issueDate ?? contract.createdAt ?? new Date());
   }
 
@@ -59,6 +60,39 @@ export class ContractPaymentPeriodsService {
     });
     if (latest) return this.addMonths(latest.periodStart, 1);
     return this.startOfMonth(fallback);
+  }
+
+  private async backfillContractPayments(contractId: number) {
+    const transactions = await this.prisma.transaction.findMany({
+      where: { contractId, status: 'PAID' },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const tx of transactions) {
+      await this.recordPaidTransaction(tx.id);
+    }
+  }
+
+  private async ensureContractSeeded(contractId: number) {
+    const hasPeriod = await this.prisma.contractPaymentPeriod.findFirst({
+      where: { contractId },
+      select: { id: true },
+    });
+    if (hasPeriod) return;
+    await this.backfillContractPayments(contractId);
+  }
+
+  private async ensureContractsSeeded(contractIds: number[]) {
+    if (!contractIds.length) return;
+    const lacking = await this.prisma.contract.findMany({
+      where: {
+        id: { in: contractIds },
+        paymentPeriods: { none: {} },
+      },
+      select: { id: true },
+    });
+    for (const contract of lacking) {
+      await this.backfillContractPayments(contract.id);
+    }
   }
 
   private buildSnapshotFromPeriod(period: { periodEnd: Date } | null, fallbackNext: Date): ContractPaymentSnapshot {
@@ -102,6 +136,7 @@ export class ContractPaymentPeriodsService {
 
   async listPayments(contractId: number) {
     const contract = await this.getContract(contractId);
+    await this.ensureContractSeeded(contract.id);
     const items = await this.prisma.contractPaymentPeriod.findMany({
       where: { contractId },
       orderBy: { periodStart: 'asc' },
@@ -133,7 +168,8 @@ export class ContractPaymentPeriodsService {
     const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
     const months =
       monthlyFee > 0 ? this.clampMonths(Math.floor((amount + 0.0001) / monthlyFee) || 1) : 1;
-    const start = await this.resolveNextStart(contract.id, this.fallbackStart(contract));
+    const fallback = this.fallbackStart(contract, transaction.createdAt);
+    const start = await this.resolveNextStart(contract.id, fallback);
 
     await this.createSequentialPeriods({
       contract,
@@ -200,6 +236,7 @@ export class ContractPaymentPeriodsService {
   }
 
   async getSnapshotForContract(contract: ContractMinimal) {
+    await this.ensureContractSeeded(contract.id);
     const latest = await this.prisma.contractPaymentPeriod.findFirst({
       where: { contractId: contract.id, status: ContractPaymentStatus.PAID },
       orderBy: { periodEnd: 'desc' },
@@ -210,6 +247,7 @@ export class ContractPaymentPeriodsService {
   async getSnapshotsForContracts(contracts: ContractMinimal[]) {
     if (!contracts.length) return new Map<number, ContractPaymentSnapshot>();
     const ids = contracts.map((c) => c.id);
+    await this.ensureContractsSeeded(ids);
     const rows = await this.prisma.contractPaymentPeriod.findMany({
       where: {
         contractId: { in: ids },

@@ -1,11 +1,11 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { Roles } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import { Injectable, OnModuleInit } from "@nestjs/common";
+import { Roles } from "@prisma/client";
+import * as bcrypt from "bcrypt";
 import { PrismaService } from "./prisma/prisma.service";
 
 @Injectable()
 export class AppService implements OnModuleInit {
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   async onModuleInit() {
     const superAdminEmail = "superadmin@example.com";
