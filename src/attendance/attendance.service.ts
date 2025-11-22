@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
@@ -9,6 +9,14 @@ import * as base64 from 'base-64';
 @Injectable()
 export class AttendanceService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) { }
+
+  private normalizeDateOnly(dateInput: string | Date) {
+    const parsed = dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('Invalid attendance date');
+    }
+    return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+  }
 
   private roundCurrency(value?: number | null) {
     if (value === null || value === undefined || Number.isNaN(value)) {
@@ -41,17 +49,43 @@ export class AttendanceService {
   }
 
   async create(dto: CreateAttendanceDto) {
+    const normalizedDate = this.normalizeDateOnly(dto.date);
     // Validate Stall exists
     const stall = await this.prisma.stall.findUnique({ where: { id: dto.stallId }, include: { SaleType: true } });
     if (!stall) throw new NotFoundException(`Stall with id ${dto.stallId} not found`);
 
     const feeNum = this.calculateStallFee(stall);
+    const amountDecimal = new Prisma.Decimal(feeNum);
+
+    const existing = await this.prisma.attendance.findUnique({
+      where: { stallId_date: { stallId: dto.stallId, date: normalizedDate } },
+      include: { Stall: true, transaction: true },
+    });
+
+    if (existing) {
+      const isPaid =
+        existing.status === AttendancePayment.PAID ||
+        (existing.transaction && existing.transaction.status === 'PAID');
+      if (isPaid) {
+        throw new BadRequestException('Attendance for this stall and date is already paid and cannot be recreated');
+      }
+
+      return this.prisma.attendance.update({
+        where: { id: existing.id },
+        data: {
+          status: dto.status ?? existing.status,
+          amount: amountDecimal,
+        },
+        include: { Stall: true, transaction: true },
+      });
+    }
 
     return this.prisma.attendance.create({
       data: {
-        ...dto,
-        date: new Date(dto.date),
-        amount: new Prisma.Decimal(feeNum),
+        stallId: dto.stallId,
+        status: dto.status ?? AttendancePayment.UNPAID,
+        date: normalizedDate,
+        amount: amountDecimal,
       },
       include: { Stall: true, transaction: true },
     });
