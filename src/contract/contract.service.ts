@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
-import { Prisma } from "@prisma/client";
+import { Prisma, ContractPaymentStatus } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
 import * as base64 from "base-64";
 import { ContractPaymentPeriodsService } from "./contract-payment.service";
@@ -150,7 +150,7 @@ export class ContractService {
       where: {
         contractId,
         periodStart: start,
-        status: Prisma.$Enums.Prisma.$Enums.ContractPaymentStatus.PAID,
+        status: ContractPaymentStatus.PAID,
       },
     });
     if (period) return true;
@@ -274,14 +274,14 @@ export class ContractService {
         (where.AND as any[] | undefined) ??= [];
         (where.AND as any[]).push({
           OR: [
-            { paymentPeriods: { some: { status: Prisma.$Enums.Prisma.$Enums.ContractPaymentStatus.PAID, periodStart: start } } },
+            { paymentPeriods: { some: { status: ContractPaymentStatus.PAID, periodStart: start } } },
             { transactions: { some: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
           ],
         });
       } else if (paidFalse) {
         (where.AND as any[] | undefined) ??= [];
         (where.AND as any[]).push(
-          { paymentPeriods: { none: { status: Prisma.$Enums.Prisma.$Enums.ContractPaymentStatus.PAID, periodStart: start } } },
+          { paymentPeriods: { none: { status: ContractPaymentStatus.PAID, periodStart: start } } },
           { transactions: { none: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
         );
       }
