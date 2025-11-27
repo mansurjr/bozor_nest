@@ -175,7 +175,7 @@ export class ContractPaymentPeriodsService {
       contract,
       start,
       months,
-      status: Prisma.Prisma.ContractPaymentStatus.PAID,
+      status: Prisma.$Enums.ContractPaymentStatus.PAID,
       amount: contract.shopMonthlyFee ?? transaction.amount,
       transactionId: transaction.id,
     });
@@ -186,7 +186,7 @@ export class ContractPaymentPeriodsService {
     contract: ContractMinimal;
     start: Date;
     months: number;
-    status: Prisma.ContractPaymentStatus;
+    status: Prisma.$Enums.ContractPaymentStatus;
     amount: Prisma.Decimal | null;
     transactionId?: number;
     createdById?: number;
@@ -238,7 +238,7 @@ export class ContractPaymentPeriodsService {
   async getSnapshotForContract(contract: ContractMinimal) {
     await this.ensureContractSeeded(contract.id);
     const latest = await this.prisma.contractPaymentPeriod.findFirst({
-      where: { contractId: contract.id, status: Prisma.Prisma.ContractPaymentStatus.PAID },
+      where: { contractId: contract.id, status: Prisma.$Enums.ContractPaymentStatus.PAID },
       orderBy: { periodEnd: 'desc' },
     });
     return this.buildSnapshotFromPeriod(latest, this.fallbackStart(contract));
@@ -251,7 +251,7 @@ export class ContractPaymentPeriodsService {
     const rows = await this.prisma.contractPaymentPeriod.findMany({
       where: {
         contractId: { in: ids },
-        status: Prisma.Prisma.ContractPaymentStatus.PAID,
+        status: Prisma.$Enums.ContractPaymentStatus.PAID,
       },
       orderBy: [
         { contractId: 'asc' },
@@ -326,7 +326,7 @@ export class ContractPaymentPeriodsService {
       contract,
       start,
       months,
-      status: Prisma.Prisma.ContractPaymentStatus.PAID,
+      status: Prisma.$Enums.ContractPaymentStatus.PAID,
       amount: contract.shopMonthlyFee,
       transactionId: tx.id,
       createdById,

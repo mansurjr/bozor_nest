@@ -150,7 +150,7 @@ export class ContractService {
       where: {
         contractId,
         periodStart: start,
-        status: Prisma.ContractPaymentStatus.PAID,
+        status: Prisma.$Enums.Prisma.$Enums.ContractPaymentStatus.PAID,
       },
     });
     if (period) return true;
@@ -274,14 +274,14 @@ export class ContractService {
         (where.AND as any[] | undefined) ??= [];
         (where.AND as any[]).push({
           OR: [
-            { paymentPeriods: { some: { status: Prisma.ContractPaymentStatus.PAID, periodStart: start } } },
+            { paymentPeriods: { some: { status: Prisma.$Enums.Prisma.$Enums.ContractPaymentStatus.PAID, periodStart: start } } },
             { transactions: { some: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
           ],
         });
       } else if (paidFalse) {
         (where.AND as any[] | undefined) ??= [];
         (where.AND as any[]).push(
-          { paymentPeriods: { none: { status: Prisma.ContractPaymentStatus.PAID, periodStart: start } } },
+          { paymentPeriods: { none: { status: Prisma.$Enums.Prisma.$Enums.ContractPaymentStatus.PAID, periodStart: start } } },
           { transactions: { none: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
         );
       }
@@ -420,8 +420,6 @@ export class ContractService {
     if (dto.issueDate) data.issueDate = new Date(dto.issueDate);
     if (dto.expiryDate) data.expiryDate = new Date(dto.expiryDate);
     if (dto.shopMonthlyFee !== undefined) data.shopMonthlyFee = dto.shopMonthlyFee as any;
-    if (dto.shopMonthlyFee !== undefined)
-      data.shopMonthlyFee = new Prisma.Decimal(dto.shopMonthlyFee);
 
     if (dto.ownerId !== undefined) {
       const owner = await this.prisma.owner.findUnique({
