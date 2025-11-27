@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
-import { ContractPaymentStatus, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
 import * as base64 from "base-64";
 import { ContractPaymentPeriodsService } from "./contract-payment.service";
@@ -27,9 +27,8 @@ export class ContractService {
     return null;
   }
 
-  private normalizeAmount(amount?: Prisma.Decimal | number | string | null) {
+  private normalizeAmount(amount?: any) {
     if (amount === null || amount === undefined) return null;
-    if (amount instanceof Prisma.Decimal) return amount.toString();
     if (typeof amount === "number" && !Number.isNaN(amount)) return amount.toString();
     if (typeof amount === "string") {
       const trimmed = amount.trim();
@@ -37,6 +36,12 @@ export class ContractService {
       const parsed = Number(trimmed);
       if (Number.isNaN(parsed)) return null;
       return parsed.toString();
+    }
+    if (typeof amount === "object" && amount !== null) {
+      try {
+        const s = amount.toString?.();
+        if (typeof s === "string" && s.trim().length) return s;
+      } catch {}
     }
     return null;
   }
@@ -145,7 +150,7 @@ export class ContractService {
       where: {
         contractId,
         periodStart: start,
-        status: ContractPaymentStatus.PAID,
+        status: Prisma.ContractPaymentStatus.PAID,
       },
     });
     if (period) return true;
@@ -226,9 +231,7 @@ export class ContractService {
         createdById,
         issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
-        shopMonthlyFee: dto.shopMonthlyFee
-          ? new Prisma.Decimal(dto.shopMonthlyFee)
-          : undefined,
+        shopMonthlyFee: dto.shopMonthlyFee ?? undefined,
       },
       include: {
         owner: true,
@@ -237,9 +240,7 @@ export class ContractService {
         transactions: true,
       },
     });
-    const normalizedAmount = this.normalizeAmount(
-      dto.shopMonthlyFee ?? created.shopMonthlyFee,
-    );
+    const normalizedAmount = this.normalizeAmount(dto.shopMonthlyFee ?? created.shopMonthlyFee);
     const storeNumber =
       created.store?.storeNumber ?? store.storeNumber ?? String(created.storeId);
 
@@ -256,7 +257,7 @@ export class ContractService {
   }
 
   async findAll(page = 1, limit = 10, isActive?: boolean, search?: string, paid?: string) {
-    const where: Prisma.ContractWhereInput = {};
+    const where: any = {};
 
     if (isActive !== undefined) {
       where.isActive = isActive;
@@ -273,14 +274,14 @@ export class ContractService {
         (where.AND as any[] | undefined) ??= [];
         (where.AND as any[]).push({
           OR: [
-            { paymentPeriods: { some: { status: ContractPaymentStatus.PAID, periodStart: start } } },
+            { paymentPeriods: { some: { status: Prisma.ContractPaymentStatus.PAID, periodStart: start } } },
             { transactions: { some: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
           ],
         });
       } else if (paidFalse) {
         (where.AND as any[] | undefined) ??= [];
         (where.AND as any[]).push(
-          { paymentPeriods: { none: { status: ContractPaymentStatus.PAID, periodStart: start } } },
+          { paymentPeriods: { none: { status: Prisma.ContractPaymentStatus.PAID, periodStart: start } } },
           { transactions: { none: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
         );
       }
@@ -418,6 +419,7 @@ export class ContractService {
     const data: any = { ...dto };
     if (dto.issueDate) data.issueDate = new Date(dto.issueDate);
     if (dto.expiryDate) data.expiryDate = new Date(dto.expiryDate);
+    if (dto.shopMonthlyFee !== undefined) data.shopMonthlyFee = dto.shopMonthlyFee as any;
     if (dto.shopMonthlyFee !== undefined)
       data.shopMonthlyFee = new Prisma.Decimal(dto.shopMonthlyFee);
 
