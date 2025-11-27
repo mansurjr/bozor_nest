@@ -255,11 +255,35 @@ export class ContractService {
     return this.ensureStorePaymentLinks(created);
   }
 
-  async findAll(page = 1, limit = 10, isActive?: boolean, search?: string) {
+  async findAll(page = 1, limit = 10, isActive?: boolean, search?: string, paid?: string) {
     const where: Prisma.ContractWhereInput = {};
 
     if (isActive !== undefined) {
       where.isActive = isActive;
+    }
+
+    // Apply paid/unpaid filter for current month if requested
+    const paidFilter = (paid ?? '').toString().toLowerCase();
+    const paidTrue = paidFilter === 'true' || paidFilter === 'paid' || paidFilter === '1';
+    const paidFalse = paidFilter === 'false' || paidFilter === 'unpaid' || paidFilter === '0';
+
+    if (paidTrue || paidFalse) {
+      const { start, end } = this.getCurrentMonthWindow();
+      if (paidTrue) {
+        (where.AND as any[] | undefined) ??= [];
+        (where.AND as any[]).push({
+          OR: [
+            { paymentPeriods: { some: { status: ContractPaymentStatus.PAID, periodStart: start } } },
+            { transactions: { some: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
+          ],
+        });
+      } else if (paidFalse) {
+        (where.AND as any[] | undefined) ??= [];
+        (where.AND as any[]).push(
+          { paymentPeriods: { none: { status: ContractPaymentStatus.PAID, periodStart: start } } },
+          { transactions: { none: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
+        );
+      }
     }
 
     const total = await this.prisma.contract.count({ where });

@@ -6,6 +6,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@ne
 import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { GetCurrentUser } from '../common/decorators/getCurrentUserid';
 import { ContractPaymentPeriodsService } from './contract-payment.service';
+import { ManualPaymentDto } from './dto/manual-payment.dto';
 
 @ApiTags('Contracts')
 @ApiBearerAuth()
@@ -30,15 +31,17 @@ export class ContractController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of items per page' })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean, description: 'Filter by active/inactive contracts' })
+  @ApiQuery({ name: 'paid', required: false, type: String, description: 'Filter by payment status for current month: paid|unpaid|true|false' })
   findAll(
     @Query('page', ParseIntPipe) page = 1,
     @Query('limit', ParseIntPipe) limit = 10,
     @Query('isActive') isActive?: string,
+    @Query('paid') paid?: string,
   ) {
     const activeFilter =
       isActive !== undefined ? isActive === 'true' : undefined;
 
-    return this.contractService.findAll(page, limit, activeFilter);
+    return this.contractService.findAll(page, limit, activeFilter, undefined, paid);
   }
 
 
@@ -69,6 +72,18 @@ export class ContractController {
   @ApiOperation({ summary: 'List payment periods for a contract' })
   listPayments(@Param('id', ParseIntPipe) id: number) {
     return this.contractPayments.listPayments(id);
+  }
+
+  @Post(':id/payments/manual')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Register a manual bank transfer payment' })
+  @ApiResponse({ status: 201, description: 'Manual payment recorded and periods updated' })
+  manualPayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ManualPaymentDto,
+    @GetCurrentUser('id') createdById: number,
+  ) {
+    return this.contractPayments.recordManualPayment(id, dto, createdById);
   }
 
   @Put(':id')

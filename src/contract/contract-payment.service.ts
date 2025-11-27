@@ -273,4 +273,66 @@ export class ContractPaymentPeriodsService {
     }
     return snapshotMap;
   }
+
+  async recordManualPayment(contractId: number, dto: { transferNumber: string; transferDate?: string; amount?: number; months?: number; startMonth?: string; notes?: string; }, createdById: number) {
+    const contract = await this.getContract(contractId);
+    const fee = Number(contract.shopMonthlyFee?.toString() ?? 0);
+    if (!fee || !(fee > 0)) {
+      throw new Error('Contract monthly fee is not configured');
+    }
+
+    let months = dto.months ? this.clampMonths(dto.months) : undefined;
+    if (dto.amount !== undefined && dto.amount !== null) {
+      const amountNum = Number(dto.amount);
+      if (!Number.isFinite(amountNum) || amountNum <= 0) {
+        throw new Error('Invalid amount');
+      }
+      const quotient = amountNum / fee;
+      if (Math.abs(Math.round(quotient) - quotient) > 1e-9) {
+        throw new Error('Amount must be an exact multiple of the monthly fee');
+      }
+      if (!months) months = this.clampMonths(Math.round(quotient));
+    }
+    if (!months) months = 1;
+
+    // Determine period start
+    let start: Date;
+    if (dto.startMonth) {
+      const m = /^([0-9]{4})-([0-9]{2})$/.exec(dto.startMonth.trim());
+      if (!m) throw new Error('startMonth must be in YYYY-MM format');
+      const year = Number(m[1]);
+      const monthIndex = Number(m[2]) - 1;
+      start = new Date(Date.UTC(year, monthIndex, 1));
+    } else {
+      const fallback = this.fallbackStart(contract);
+      start = await this.resolveNextStart(contract.id, fallback);
+    }
+
+    // Create a transaction record
+    const totalAmount = dto.amount !== undefined && dto.amount !== null ? dto.amount : fee * months;
+    const transferDate = dto.transferDate ? new Date(dto.transferDate) : new Date();
+    const tx = await this.prisma.transaction.create({
+      data: {
+        transactionId: dto.transferNumber,
+        amount: new Prisma.Decimal(totalAmount),
+        status: 'PAID',
+        paymentMethod: 'CASH',
+        contract: { connect: { id: contract.id } },
+        createdAt: transferDate,
+      },
+    });
+
+    await this.createSequentialPeriods({
+      contract,
+      start,
+      months,
+      status: ContractPaymentStatus.PAID,
+      amount: contract.shopMonthlyFee,
+      transactionId: tx.id,
+      createdById,
+      notes: dto.notes,
+    });
+
+    return this.listPayments(contract.id);
+  }
 }

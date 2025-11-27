@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 import { GetStallDto } from './dto/getPayInfo.dto';
 import * as base64 from 'base-64';
+import { ContractPaymentPeriodsService } from '../contract/contract-payment.service';
 dayjs.extend(isBetween);
 
 function normalizeStoreNumber(value?: string): string | undefined {
@@ -26,6 +27,7 @@ export class PublicService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly contractPayments: ContractPaymentPeriodsService,
   ) { }
 
   private getConfigValue(...keys: string[]): string | null {
@@ -177,7 +179,7 @@ export class PublicService {
     return null;
   }
 
-  private buildContractPaymentInfo(contract: any) {
+  private buildContractPaymentInfo(contract: any, hasCurrentPeriodPaid: boolean) {
     const amountString = this.normalizeAmount(contract.shopMonthlyFee);
     const amount = amountString ? Number(amountString) : null;
     const currency = amount ? 'UZS' : null;
@@ -185,12 +187,7 @@ export class PublicService {
     const startOfMonth = dayjs().startOf('month');
     const endOfMonth = dayjs().endOf('month');
 
-    const paid =
-      contract.transactions?.some(
-        (tx: any) =>
-          tx.status === 'PAID' &&
-          dayjs(tx.createdAt).isBetween(startOfMonth, endOfMonth, 'day', '[]'),
-      ) ?? false;
+    const paid = !!hasCurrentPeriodPaid;
 
     const tenantId = this.config.get<string>('TENANT_ID');
     const paymentUrl =
@@ -219,7 +216,7 @@ export class PublicService {
     }
 
 
-    const where: Prisma.ContractWhereInput = {};
+    const where: Prisma.ContractWhereInput = { isActive: true };
     if (normalizedStoreNumber) {
       const storeFilters: Prisma.StoreWhereInput = {
         OR: [
@@ -268,12 +265,6 @@ export class PublicService {
       include: {
         store: true,
         owner: true,
-        transactions: {
-          select: {
-            createdAt: true,
-            status: true,
-          },
-        },
       },
     });
 
@@ -288,9 +279,20 @@ export class PublicService {
       contracts.map((contract) => this.ensureStorePaymentLinks(contract)),
     );
 
+    const snapshots = await this.contractPayments.getSnapshotsForContracts(
+      enrichedContracts.map((c: any) => ({
+        id: c.id,
+        issueDate: c.issueDate,
+        createdAt: c.createdAt,
+        shopMonthlyFee: c.shopMonthlyFee,
+      })) as any,
+    );
+
     const result = enrichedContracts.map((contract: any) => {
-      const paymentInfo = this.buildContractPaymentInfo(contract);
-      const { transactions, ...rest } = contract;
+      const snap = snapshots.get(contract.id);
+      const paymentInfo = this.buildContractPaymentInfo(contract, snap?.hasCurrentPeriodPaid ?? false);
+      const rest = contract;
+      const expired = contract.expiryDate ? dayjs(contract.expiryDate).isBefore(dayjs(), 'day') : false;
       const normalizedMonthlyFee =
         paymentInfo.amount ?? this.toNumber(rest.shopMonthlyFee) ?? rest.shopMonthlyFee;
 
@@ -298,6 +300,7 @@ export class PublicService {
         ...rest,
         shopMonthlyFee: normalizedMonthlyFee,
         paid: paymentInfo.paid,
+        expired,
         paymentUrl: paymentInfo.paymentUrl,
         payment: {
           amountDue: paymentInfo.amount,
@@ -321,21 +324,22 @@ export class PublicService {
       include: {
         owner: true,
         store: true,
-        transactions: {
-          select: {
-            createdAt: true,
-            status: true,
-          },
-        },
       },
     });
 
-    if (!contract) {
+    if (!contract || contract.isActive === false) {
       throw new NotFoundException(`Contract with id ${id} not found`);
     }
 
     const enriched = await this.ensureStorePaymentLinks(contract);
-    const paymentInfo = this.buildContractPaymentInfo(enriched);
+    const snapshot = await this.contractPayments.getSnapshotForContract({
+      id: enriched.id,
+      issueDate: enriched.issueDate,
+      createdAt: enriched.createdAt,
+      shopMonthlyFee: enriched.shopMonthlyFee,
+    } as any);
+    const paymentInfo = this.buildContractPaymentInfo(enriched, snapshot?.hasCurrentPeriodPaid ?? false);
+    const expired = enriched.expiryDate ? dayjs(enriched.expiryDate).isBefore(dayjs(), 'day') : false;
 
     const contractPayload = {
       id: enriched.id,
@@ -348,6 +352,7 @@ export class PublicService {
       shopMonthlyFee:
         paymentInfo.amount ?? this.toNumber(enriched.shopMonthlyFee),
       paid: paymentInfo.paid,
+      expired,
     };
 
     return {
