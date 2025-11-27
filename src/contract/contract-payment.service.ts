@@ -186,7 +186,7 @@ export class ContractPaymentPeriodsService {
     contract: ContractMinimal;
     start: Date;
     months: number;
-    status: Prisma.$Enums.ContractPaymentStatus;
+    status: ContractPaymentStatus;
     amount: Prisma.Decimal | null;
     transactionId?: number;
     createdById?: number;
