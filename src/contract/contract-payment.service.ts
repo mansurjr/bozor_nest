@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, ContractPaymentStatus } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, ContractPaymentStatus, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 type ContractMinimal = {
@@ -276,6 +276,17 @@ export class ContractPaymentPeriodsService {
 
   async recordManualPayment(contractId: number, dto: { transferNumber: string; transferDate?: string; amount?: number; months?: number; startMonth?: string; notes?: string; }, createdById: number) {
     const contract = await this.getContract(contractId);
+    const transferNumber = dto.transferNumber?.trim();
+    if (!transferNumber) {
+      throw new BadRequestException('transferNumber is required');
+    }
+    const exists = await this.prisma.transaction.findUnique({
+      where: { transactionId: transferNumber },
+    });
+    if (exists) {
+      throw new BadRequestException('A transaction with this transferNumber already exists');
+    }
+
     const fee = Number(contract.shopMonthlyFee?.toString() ?? 0);
     if (!fee || !(fee > 0)) {
       throw new Error('Contract monthly fee is not configured');
@@ -311,14 +322,19 @@ export class ContractPaymentPeriodsService {
     // Create a transaction record
     const totalAmount = dto.amount !== undefined && dto.amount !== null ? dto.amount : fee * months;
     const transferDate = dto.transferDate ? new Date(dto.transferDate) : new Date();
+    if (Number.isNaN(transferDate.getTime())) {
+      throw new BadRequestException('transferDate is invalid');
+    }
     const tx = await this.prisma.transaction.create({
       data: {
-        transactionId: dto.transferNumber,
+        transactionId: transferNumber,
         amount: totalAmount as any,
         status: 'PAID',
-        paymentMethod: 'CASH',
+        paymentMethod: PaymentMethod.CASH,
         contract: { connect: { id: contract.id } },
         createdAt: transferDate,
+        performTime: transferDate,
+        state: 2,
       },
     });
 

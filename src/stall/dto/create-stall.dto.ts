@@ -13,12 +13,14 @@ export class CreateStallDto {
   stallNumber: string;
 
   @ApiPropertyOptional({ description: 'SaleType ID', example: 1 })
+  @IsOptional()
   @IsNumber()
-  saleTypeId: number;
+  saleTypeId?: number;
 
   @ApiPropertyOptional({ description: 'Section ID', example: 1 })
+  @IsOptional()
   @IsNumber()
-  sectionId: number;
+  sectionId?: number;
 
   @ApiPropertyOptional({ description: 'Description', example: 'Corner stall' })
   @IsOptional()

@@ -12,15 +12,14 @@ export class StallService {
 
   async create(dto: CreateStallDto) {
 
-    let dailyFee: Prisma.Decimal;
+    let dailyFee = new Prisma.Decimal(0);
     if (dto.saleTypeId) {
       const saleType = await this.prisma.saleType.findUnique({
         where: { id: dto.saleTypeId },
       });
       if (!saleType) throw new NotFoundException(`SaleType with id ${dto.saleTypeId} not found`);
-      dailyFee = new Prisma.Decimal(saleType.tax);
-    } else {
-      dailyFee = new Prisma.Decimal(0);
+      const feeNumber = Number(dto.area) * Number(saleType.tax);
+      dailyFee = new Prisma.Decimal(Number.isFinite(feeNumber) ? feeNumber : 0);
     }
 
 
@@ -35,10 +34,21 @@ export class StallService {
       data: { ...dto, dailyFee },
       include: { SaleType: true, Section: true },
     });
-    const click_url = `https://my.click.uz/services/pay?service_id=${this.config.get("serviceId")}&merchant_id=${this.config.get("merchantId")}&amount=${newStall.dailyFee}&${newStall.stallNumber}`
+    const serviceId =
+      this.config.get("PAYMENT_SERVICE_ID") ||
+      this.config.get("CLICK_SERVICE_ID") ||
+      this.config.get("serviceId");
+    const merchantId =
+      this.config.get("PAYMENT_MERCHANT_ID") ||
+      this.config.get("CLICK_MERCHANT_ID") ||
+      this.config.get("merchantId");
+    const click_url =
+      serviceId && merchantId
+        ? `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${newStall.dailyFee.toString()}&transaction_param=${newStall.stallNumber}`
+        : null;
     return await this.prisma.stall.update({
       where: { id: newStall.id },
-      data: { click_payment_url: click_url },
+      data: { click_payment_url: click_url ?? undefined },
       include: { SaleType: true, Section: true },
     });
   }
@@ -91,17 +101,31 @@ export class StallService {
 
   async update(id: number, dto: UpdateStallDto) {
     const stall = await this.findOne(id);
+    const nextArea = dto.area ?? stall.area;
+    const nextSaleTypeId = dto.saleTypeId ?? stall.saleTypeId;
     let dailyFee = stall.dailyFee;
     let click_payment_url = stall.click_payment_url;
 
 
-    if (dto.saleTypeId) {
+    if (nextSaleTypeId) {
       const saleType = await this.prisma.saleType.findUnique({
-        where: { id: dto.saleTypeId },
+        where: { id: nextSaleTypeId },
       });
-      if (!saleType) throw new NotFoundException(`SaleType with id ${dto.saleTypeId} not found`);
-      dailyFee = new Prisma.Decimal(saleType.tax);
-      click_payment_url = `https://my.click.uz/services/pay?service_id=${this.config.get("serviceId")}&merchant_id=${this.config.get("merchantId")}&amount=${dailyFee}&${stall.stallNumber}`
+      if (!saleType) throw new NotFoundException(`SaleType with id ${nextSaleTypeId} not found`);
+      const feeNumber = Number(nextArea) * Number(saleType.tax);
+      dailyFee = new Prisma.Decimal(Number.isFinite(feeNumber) ? feeNumber : 0);
+      const serviceId =
+        this.config.get("PAYMENT_SERVICE_ID") ||
+        this.config.get("CLICK_SERVICE_ID") ||
+        this.config.get("serviceId");
+      const merchantId =
+        this.config.get("PAYMENT_MERCHANT_ID") ||
+        this.config.get("CLICK_MERCHANT_ID") ||
+        this.config.get("merchantId");
+      click_payment_url =
+        serviceId && merchantId
+          ? `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${dailyFee.toString()}&transaction_param=${stall.stallNumber}`
+          : click_payment_url;
     }
 
 

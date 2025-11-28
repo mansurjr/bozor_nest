@@ -132,11 +132,11 @@ export class AttendanceService {
       existing.status === 'PAID' ||
       (existing.transaction && existing.transaction.status === 'PAID');
     if (isPaid) {
-      throw new Error('Paid attendance cannot be modified');
+      throw new BadRequestException('Paid attendance cannot be modified');
     }
 
     const data: any = { ...dto };
-    if (dto.date) data.date = new Date(dto.date);
+    if (dto.date) data.date = this.normalizeDateOnly(dto.date);
     // Recompute amount based on target stall
     const targetStallId = dto.stallId ?? existing.stallId;
     const stall = await this.prisma.stall.findUnique({ where: { id: targetStallId }, include: { SaleType: true } });
@@ -157,7 +157,7 @@ export class AttendanceService {
       existing.status === 'PAID' ||
       (existing.transaction && existing.transaction.status === 'PAID');
     if (isPaid) {
-      throw new Error('Paid attendance cannot be deleted');
+      throw new BadRequestException('Paid attendance cannot be deleted');
     }
     return this.prisma.attendance.delete({ where: { id } });
   }
