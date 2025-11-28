@@ -46,9 +46,15 @@ async function bootstrap() {
       if (!origin) {
         return callback(null, true);
       }
-      if (allowedOrigins.includes(origin) || origin.endsWith(".myrent.uz")) {
+
+      const isTenantOrigin = origin.endsWith(".myrent.uz");
+      const isLocalhost =
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+
+      if (allowedOrigins.includes(origin) || isTenantOrigin || isLocalhost) {
         return callback(null, true);
       }
+
       callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
