@@ -276,6 +276,10 @@ export class ContractPaymentPeriodsService {
 
   async recordManualPayment(contractId: number, dto: { transferNumber: string; transferDate?: string; amount?: number; months?: number; startMonth?: string; notes?: string; }, createdById: number) {
     const contract = await this.getContract(contractId);
+    const snapshot = await this.getSnapshotForContract(contract);
+    if (snapshot.hasCurrentPeriodPaid) {
+      throw new BadRequestException('Current period already paid; manual payment not allowed');
+    }
     const transferNumber = dto.transferNumber?.trim();
     if (!transferNumber) {
       throw new BadRequestException('transferNumber is required');
