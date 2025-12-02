@@ -49,4 +49,42 @@ export class StatisticsController {
   async getCurrentMonthIncome(@Query('type') type?: EntityType) {
     return this.statisticsService.getCurrentMonthIncome(type);
   }
+
+  @Get('totals')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get totals with filters (date range, type, method, status)' })
+  @ApiQuery({ name: 'from', required: false, description: 'From timestamp (ISO or ms)' })
+  @ApiQuery({ name: 'to', required: false, description: 'To timestamp (ISO or ms)' })
+  @ApiQuery({ name: 'type', enum: ['stall', 'store', 'all'], required: false })
+  @ApiQuery({ name: 'method', enum: ['PAYME', 'CLICK', 'CASH'], required: false })
+  @ApiQuery({ name: 'status', required: false, description: 'Transaction/attendance status (e.g., PAID)' })
+  async getTotals(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('type') type: 'stall' | 'store' | 'all' = 'all',
+    @Query('method') method?: 'PAYME' | 'CLICK' | 'CASH',
+    @Query('status') status: string = 'PAID',
+  ) {
+    return this.statisticsService.getTotals({ from, to, type, method, status });
+  }
+
+  @Get('series')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get time series with filters (date range, groupBy, type, method, status)' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiQuery({ name: 'groupBy', enum: ['daily', 'weekly', 'monthly'], required: false })
+  @ApiQuery({ name: 'type', enum: ['stall', 'store', 'all'], required: false })
+  @ApiQuery({ name: 'method', enum: ['PAYME', 'CLICK', 'CASH'], required: false })
+  @ApiQuery({ name: 'status', required: false })
+  async getSeries(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('groupBy') groupBy: 'daily' | 'weekly' | 'monthly' = 'daily',
+    @Query('type') type: 'stall' | 'store' | 'all' = 'all',
+    @Query('method') method?: 'PAYME' | 'CLICK' | 'CASH',
+    @Query('status') status: string = 'PAID',
+  ) {
+    return this.statisticsService.getSeries({ from, to, groupBy, type, method, status });
+  }
 }

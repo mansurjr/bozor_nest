@@ -302,6 +302,14 @@ export class PublicService {
         paid: paymentInfo.paid,
         expired,
         paymentUrl: paymentInfo.paymentUrl,
+        paymentSnapshot: snap
+          ? {
+              paidThrough: snap.paidThrough,
+              nextPeriodStart: snap.nextPeriodStart,
+              monthsAhead: snap.monthsAhead,
+              hasCurrentPeriodPaid: snap.hasCurrentPeriodPaid,
+            }
+          : null,
         payment: {
           amountDue: paymentInfo.amount,
           currency: paymentInfo.currency,
@@ -359,6 +367,14 @@ export class PublicService {
       contract: contractPayload,
       owner: enriched.owner,
       store: enriched.store,
+      paymentSnapshot: snapshot
+        ? {
+            paidThrough: snapshot.paidThrough,
+            nextPeriodStart: snapshot.nextPeriodStart,
+            monthsAhead: snapshot.monthsAhead,
+            hasCurrentPeriodPaid: snapshot.hasCurrentPeriodPaid,
+          }
+        : null,
       payment: {
         amountDue: paymentInfo.amount,
         currency: paymentInfo.currency,

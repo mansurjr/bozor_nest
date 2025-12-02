@@ -1,10 +1,7 @@
 import { PrismaService } from "../../prisma/prisma.service";
 
-function getCurrentMonthRange(reference = new Date()) {
-  const start = new Date(reference.getFullYear(), reference.getMonth(), 1);
-  const end = new Date(start);
-  end.setMonth(end.getMonth() + 1);
-  return { start, end };
+function startOfCurrentMonth(reference = new Date()) {
+  return new Date(reference.getFullYear(), reference.getMonth(), 1, 0, 0, 0, 0);
 }
 
 export const checkStore = async (prisma: PrismaService, storeNumber: string) => {
@@ -18,15 +15,17 @@ export const checkStore = async (prisma: PrismaService, storeNumber: string) => 
   let paidThisMonth = false;
 
   if (contract) {
-    const { start, end } = getCurrentMonthRange();
-    const existingMonthly = await prisma.transaction.findFirst({
+    // Use payment periods table as the source of truth, not raw transactions window
+    const start = startOfCurrentMonth();
+    const period = await prisma.contractPaymentPeriod.findFirst({
       where: {
         contractId: contract.id,
-        status: "PAID",
-        createdAt: { gte: start, lt: end },
+        periodStart: start,
+        status: 'PAID',
       },
+      select: { id: true },
     });
-    paidThisMonth = Boolean(existingMonthly);
+    paidThisMonth = Boolean(period);
   }
 
   return {

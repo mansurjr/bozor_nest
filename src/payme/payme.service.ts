@@ -60,6 +60,18 @@ export class PaymeService {
         return { error: PaymeError.AlreadyDone, data: null };
       }
 
+      // Accept exact integer multiples up to 12 months for contracts
+      try {
+        const fee = Number(contract?.shopMonthlyFee ?? 0);
+        const incoming = Number(amount ?? 0);
+        if (fee > 0 && Number.isFinite(fee) && Number.isFinite(incoming)) {
+          const months = incoming / (fee * 100);
+          if (Math.abs(months - Math.floor(months)) < 1e-9 && months >= 1 && months <= 12) {
+            return { result: { allow: true } };
+          }
+        }
+      } catch {}
+
       console.log(`[checkPerformTransaction] Incoming amount: ${amount}, Expected: ${contract?.shopMonthlyFee}`);
 
       if (amount && Number(amount) !== Number(contract?.shopMonthlyFee) * 100) {
@@ -112,7 +124,19 @@ export class PaymeService {
       entityAmount = Number(contract?.shopMonthlyFee);
       contractIdNum = contract?.id;
 
-      console.log(`[createTransaction] Contract: incoming=${amount}, expected=${entityAmount}`);
+      // If incoming equals an exact integer multiple (1..12) of monthly fee, scale entityAmount accordingly
+      try {
+        const fee = entityAmount;
+        const incoming = Number(amount ?? 0);
+        if (fee > 0 && Number.isFinite(fee) && Number.isFinite(incoming)) {
+          const months = incoming / (fee * 100);
+          if (Math.abs(months - Math.floor(months)) < 1e-9 && months >= 1 && months <= 12) {
+            entityAmount = fee * Math.floor(months);
+          }
+        }
+      } catch {}
+
+      console.log(`[createTransaction] Contract: incoming=${amount}, expected(total)=${entityAmount}`);
     } else if (attendanceId) {
       const { attendance, alreadyPaid } = await checkAttendance(this.prisma, attendanceId);
       if (!attendance || alreadyPaid) return { error: PaymeError.AlreadyDone, data: null };

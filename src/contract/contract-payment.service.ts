@@ -168,8 +168,23 @@ export class ContractPaymentPeriodsService {
     const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
     const months =
       monthlyFee > 0 ? this.clampMonths(Math.floor((amount + 0.0001) / monthlyFee) || 1) : 1;
-    const fallback = this.fallbackStart(contract, transaction.createdAt);
-    const start = await this.resolveNextStart(contract.id, fallback);
+    // Determine start: next unpaid month if any; otherwise, allocate ending at current month
+    const latest = await this.prisma.contractPaymentPeriod.findFirst({
+      where: { contractId: contract.id, status: ContractPaymentStatus.PAID },
+      orderBy: { periodEnd: 'desc' },
+      select: { periodStart: true },
+    });
+    let start: Date;
+    if (latest) {
+      start = this.addMonths(latest.periodStart, 1);
+    } else {
+      const nowStart = this.startOfMonth(new Date());
+      // allocate backward to cover backlog up to current month
+      start = this.addMonths(nowStart, 1 - months);
+      // clamp to contract start if necessary
+      const floor = this.fallbackStart(contract);
+      if (start < floor) start = floor;
+    }
 
     await this.createSequentialPeriods({
       contract,

@@ -119,29 +119,29 @@ export class ClickWebhookService {
         }
 
 
+        // Block only if current month's period already paid
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
-
-        const endOfMonth = new Date(startOfMonth);
-        endOfMonth.setMonth(startOfMonth.getMonth() + 1);
-        endOfMonth.setMilliseconds(-1);
-
-        const existingMonthly = await this.prisma.transaction.findFirst({
-          where: {
-            contractId: contract.id,
-            status: 'PAID',
-            createdAt: { gte: startOfMonth, lte: endOfMonth },
-          },
+        const existingPeriod = await this.prisma.contractPaymentPeriod.findFirst({
+          where: { contractId: contract.id, periodStart: startOfMonth, status: 'PAID' },
         });
+        if (existingPeriod) {
+          return { click_trans_id, merchant_trans_id, error: -5, error_note: 'Already paid for this month' };
+        }
 
-        if (existingMonthly) {
-          return {
-            click_trans_id,
-            merchant_trans_id,
-            error: -5,
-            error_note: 'Already paid for this month',
-          };
+        // Validate amount is an exact multiple (1..12) of monthly fee
+        const fee = Number((contract.shopMonthlyFee as any)?.toString?.() ?? contract.shopMonthlyFee ?? 0);
+        const incoming = Number(amount);
+        if (!(fee > 0 && Number.isFinite(fee) && Number.isFinite(incoming))) {
+          return { click_trans_id, merchant_trans_id, error: -2, error_note: 'Incorrect amount' };
+        }
+        const monthsFloat = incoming / fee;
+        const monthsInt = Math.floor(monthsFloat + 1e-9);
+        const withinCap = monthsInt >= 1 && monthsInt <= 12;
+        const exactMultiple = Math.abs(monthsFloat - monthsInt) < 1e-9;
+        if (!(withinCap && exactMultiple)) {
+          return { click_trans_id, merchant_trans_id, error: -2, error_note: 'Incorrect amount' };
         }
 
 

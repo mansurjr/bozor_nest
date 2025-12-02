@@ -24,6 +24,24 @@ export class StatisticsService {
     return attendances.reduce((sum, item) => sum + this.decimalToNumber(item.amount), 0);
   }
 
+  private parseDate(input?: string): Date | null {
+    if (!input) return null;
+    const n = Number(input);
+    if (!Number.isNaN(n)) {
+      const d = new Date(n);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(input);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  private normalizeRange(from?: string, to?: string) {
+    const now = new Date();
+    const fromDate = this.parseDate(from) ?? startOfDay(now);
+    const toDate = this.parseDate(to) ?? endOfDay(now);
+    return { from: fromDate, to: toDate };
+  }
+
   private async collectStallPayments(from: Date, to: Date) {
     const [paidTransactions, manualAttendances] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -118,5 +136,125 @@ export class StatisticsService {
     return {
       revenue: (stallRevenue.revenue || 0) + (storeRevenue.revenue || 0),
     };
+  }
+
+  async getTotals(params: { from?: string; to?: string; type?: 'stall' | 'store' | 'all'; method?: 'PAYME' | 'CLICK' | 'CASH'; status?: string; }) {
+    const { from, to } = this.normalizeRange(params.from, params.to);
+    const type = params.type === 'stall' || params.type === 'store' ? params.type : 'all';
+    const status = params.status || 'PAID';
+
+    const doStall = type === 'stall' || type === 'all';
+    const doStore = type === 'store' || type === 'all';
+
+    const stallResult = doStall ? await this.collectStallPayments(from, to) : { count: 0, revenue: 0 };
+    const whereTx: any = {
+      createdAt: { gte: from, lte: to },
+      status,
+    };
+    if (params.method) whereTx.paymentMethod = params.method;
+    const storeResult = doStore
+      ? {
+          count: await this.prisma.transaction.count({ where: { ...whereTx, contractId: { not: null } } }),
+          revenue: this.sumTransactions(await this.prisma.transaction.findMany({ where: { ...whereTx, contractId: { not: null } } })),
+        }
+      : { count: 0, revenue: 0 };
+
+    return { count: stallResult.count + storeResult.count, revenue: stallResult.revenue + storeResult.revenue };
+  }
+
+  async getSeries(params: { from?: string; to?: string; groupBy?: 'daily' | 'weekly' | 'monthly'; type?: 'stall' | 'store' | 'all'; method?: 'PAYME' | 'CLICK' | 'CASH'; status?: string; }) {
+    const { from, to } = this.normalizeRange(params.from, params.to);
+    const type = params.type === 'stall' || params.type === 'store' ? params.type : 'all';
+    const status = params.status || 'PAID';
+    const groupBy = params.groupBy || 'daily';
+
+    // build buckets
+    const labels: string[] = [];
+    const buckets: Date[] = [];
+    const cursor = new Date(from);
+    const end = new Date(to);
+    const fmt = (d: Date) => d.toISOString();
+    if (groupBy === 'monthly') {
+      let c = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+      while (c <= end) {
+        labels.push(`${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, '0')}`);
+        buckets.push(new Date(c));
+        c = new Date(c.getFullYear(), c.getMonth() + 1, 1);
+      }
+    } else if (groupBy === 'weekly') {
+      let c = startOfDay(cursor);
+      while (c <= end) {
+        labels.push(fmt(c));
+        buckets.push(new Date(c));
+        c = new Date(c.getTime() + 7 * 24 * 60 * 60 * 1000);
+      }
+    } else {
+      let c = startOfDay(cursor);
+      while (c <= end) {
+        labels.push(fmt(c));
+        buckets.push(new Date(c));
+        c = new Date(c.getTime() + 24 * 60 * 60 * 1000);
+      }
+    }
+
+    const init = new Array(labels.length).fill(0);
+    const stallSeries = init.slice();
+    const storeSeries = init.slice();
+
+    // Load data
+    const doStall = type === 'stall' || type === 'all';
+    const doStore = type === 'store' || type === 'all';
+
+    let attendances: Attendance[] = [];
+    if (doStall) {
+      attendances = await this.prisma.attendance.findMany({
+        where: { date: { gte: from, lte: to }, status: status as any },
+      });
+    }
+    let transactions: Transaction[] = [];
+    if (doStore) {
+      const whereTx: any = { createdAt: { gte: from, lte: to }, status };
+      if (params.method) whereTx.paymentMethod = params.method;
+      transactions = await this.prisma.transaction.findMany({ where: { ...whereTx, contractId: { not: null } } });
+    }
+
+    const findIndex = (d: Date) => {
+      if (groupBy === 'monthly') {
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return labels.indexOf(key);
+      }
+      if (groupBy === 'weekly') {
+        // align to the start bucket boundaries we produced
+        const t = startOfDay(d);
+        // find last bucket <= date
+        let idx = -1;
+        for (let i = 0; i < buckets.length; i++) {
+          if (buckets[i] <= t) idx = i; else break;
+        }
+        return idx;
+      }
+      const key = fmt(startOfDay(d));
+      return labels.indexOf(key);
+    };
+
+    if (doStall) {
+      for (const a of attendances) {
+        const idx = findIndex(new Date(a.date));
+        if (idx >= 0) stallSeries[idx] += this.decimalToNumber(a.amount);
+      }
+    }
+    if (doStore) {
+      for (const t of transactions) {
+        const d = t.createdAt ? new Date(t.createdAt) : null as any;
+        if (!d) continue;
+        const idx = findIndex(d);
+        if (idx >= 0) storeSeries[idx] += this.decimalToNumber(t.amount as any);
+      }
+    }
+
+    const series: any[] = [];
+    if (doStall) series.push({ key: 'stall', data: stallSeries });
+    if (doStore) series.push({ key: 'store', data: storeSeries });
+    return { labels, series };
   }
 }
