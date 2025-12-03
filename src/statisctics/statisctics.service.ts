@@ -524,7 +524,8 @@ export class StatisticsService {
       const paidTx = contract.transactions.filter((t) => t.status === 'PAID');
       const paid = this.sumTransactions(paidTx as any);
       const unpaid = Math.max(0, expected - paid);
-      const overpaid = paid > expected;
+      // Overpayment rule: more than one full month's fee paid within the selected month
+      const overpaid = expected > 0 && paid > expected * 1.01;
       const lastPayment = contract.transactions.slice().sort((a, b) => {
         const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
