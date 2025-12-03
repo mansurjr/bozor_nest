@@ -129,4 +129,74 @@ export class StatisticsController {
   ) {
     return this.statisticsService.getRecentMonthlySeries({ months: Number(months), type, method });
   }
+
+  // Reconciliation endpoints
+  @Get('reconciliation/ledger')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Kunlik daftar: rasta va do‘kon to‘lovlari (PAID/PENDING/FAILED) Tashkent TZ' })
+  async getReconciliationLedger(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('type') type: 'stall' | 'store' | 'all' = 'all',
+    @Query('method') method?: 'PAYME' | 'CLICK' | 'CASH',
+    @Query('status') status?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('contractId') contractId?: string,
+    @Query('stallId') stallId?: string,
+  ) {
+    return this.statisticsService.getReconciliationLedger({
+      from,
+      to,
+      month: month ? Number(month) : undefined,
+      year: year ? Number(year) : undefined,
+      type,
+      method,
+      status,
+      sectionId: sectionId ? Number(sectionId) : undefined,
+      contractId: contractId ? Number(contractId) : undefined,
+      stallId: stallId ? Number(stallId) : undefined,
+    });
+  }
+
+  @Get('reconciliation/contracts')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Shartnoma bo‘yicha yig‘indi: oylik ijara vs to‘langan, ortiqcha yoki kam' })
+  async getReconciliationContractSummary(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('method') method?: 'PAYME' | 'CLICK' | 'CASH',
+    @Query('status') status?: string,
+    @Query('sectionId') sectionId?: string,
+  ) {
+    return this.statisticsService.getReconciliationContractSummary({
+      from,
+      to,
+      month: month ? Number(month) : undefined,
+      year: year ? Number(year) : undefined,
+      method,
+      status,
+      sectionId: sectionId ? Number(sectionId) : undefined,
+    });
+  }
+
+  @Get('reconciliation/monthly')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Oylik trend (so‘nggi oylar) rasta/do‘kon kesimida' })
+  async getReconciliationMonthlyRollup(
+    @Query('months') months?: string,
+    @Query('type') type: 'stall' | 'store' | 'all' = 'all',
+    @Query('method') method?: 'PAYME' | 'CLICK' | 'CASH',
+    @Query('status') status?: string,
+  ) {
+    return this.statisticsService.getReconciliationMonthlyRollup({
+      months: months ? Number(months) : undefined,
+      type,
+      method,
+      status,
+    });
+  }
 }

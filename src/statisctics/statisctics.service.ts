@@ -5,6 +5,7 @@ import { Transaction, Attendance } from '@prisma/client';
 
 type EntityType = 'stall' | 'store';
 type PaymentMethod = 'PAYME' | 'CLICK' | 'CASH';
+type TxStatus = string;
 
 @Injectable()
 export class StatisticsService {
@@ -82,6 +83,14 @@ export class StatisticsService {
       count: paidTransactions.length + (method && method !== 'CASH' ? 0 : manualAttendances.length),
       revenue: this.sumTransactions(paidTransactions) + (method && method !== 'CASH' ? 0 : this.sumAttendances(manualAttendances)),
     };
+  }
+
+  private toTashkentDate(value: Date | string | number) {
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return null;
+    // Shift to Tashkent by aligning to +05:00 in ISO string
+    const iso = d.toISOString();
+    return new Date(iso.replace('Z', '+05:00'));
   }
 
   private async collectStorePayments(from: Date, to: Date, method?: PaymentMethod) {
@@ -360,6 +369,228 @@ export class StatisticsService {
     const series: any[] = [];
     if (doStall) series.push({ key: 'stall', data: stallSeries });
     if (doStore) series.push({ key: 'store', data: storeSeries });
+    return { labels, series };
+  }
+
+  async getReconciliationLedger(params: {
+    from?: string;
+    to?: string;
+    month?: number;
+    year?: number;
+    type?: 'stall' | 'store' | 'all';
+    method?: PaymentMethod;
+    status?: TxStatus | 'all';
+    sectionId?: number;
+    contractId?: number;
+    stallId?: number;
+  }) {
+    const range = params.month && params.year
+      ? this.monthRange(params.year, params.month)
+      : this.normalizeRange(params.from, params.to);
+    const { start, end } = (range as any).start ? (range as any) : { start: (range as any).from, end: (range as any).to };
+    const doStall = !params.type || params.type === 'all' || params.type === 'stall';
+    const doStore = !params.type || params.type === 'all' || params.type === 'store';
+    const statusFilter = params.status && params.status !== 'all' ? params.status : null;
+    const methodFilter = params.method || null;
+
+    const rows: any[] = [];
+
+    if (doStall) {
+      const attendances = await this.prisma.attendance.findMany({
+        where: {
+          date: { gte: start, lte: end },
+          ...(statusFilter ? { status: statusFilter as any } : {}),
+          ...(params.stallId ? { stallId: params.stallId } : {}),
+          ...(params.sectionId ? { Stall: { sectionId: params.sectionId } } : {}),
+        },
+        include: {
+          transaction: true,
+          Stall: { include: { Section: true } },
+        },
+      });
+      for (const a of attendances) {
+        const method = (a.transaction?.paymentMethod as PaymentMethod) || 'CASH';
+        if (methodFilter && method !== methodFilter) continue;
+        const status = (a.transaction?.status as any) || a.status;
+        rows.push({
+          date: this.toTashkentDate(a.date),
+          type: 'stall',
+          stallId: a.stallId,
+          sectionId: a.Stall?.sectionId ?? null,
+          sectionName: a.Stall?.Section?.name ?? null,
+          amount: this.decimalToNumber(a.transaction?.amount ?? a.amount),
+          status,
+          method,
+          source: 'attendance',
+          id: a.id,
+          transactionId: a.transactionId,
+          paidAt: this.toTashkentDate(a.transaction?.createdAt ?? a.date),
+          note: a.transaction ? undefined : 'Manual',
+        });
+      }
+    }
+
+    if (doStore) {
+      const transactions = await this.prisma.transaction.findMany({
+        where: {
+          contractId: { not: null },
+          createdAt: { gte: start, lte: end },
+          ...(statusFilter ? { status: statusFilter } : {}),
+          ...(methodFilter ? { paymentMethod: methodFilter } : {}),
+          ...(params.contractId ? { contractId: params.contractId } : {}),
+          ...(params.sectionId ? { contract: { store: { sectionId: params.sectionId } } } : {}),
+        },
+        include: {
+          contract: {
+            include: {
+              store: { include: { Section: true } },
+              owner: true,
+            },
+          },
+        },
+      });
+      for (const t of transactions) {
+        rows.push({
+          date: this.toTashkentDate(t.createdAt),
+          type: 'store',
+          contractId: t.contractId,
+          storeId: t.contract?.storeId ?? null,
+          storeNumber: t.contract?.store?.storeNumber ?? null,
+          sectionId: t.contract?.store?.sectionId ?? null,
+          sectionName: t.contract?.store?.Section?.name ?? null,
+          owner: t.contract?.owner?.fullName ?? null,
+          amount: this.decimalToNumber(t.amount),
+          status: t.status,
+          method: t.paymentMethod as PaymentMethod,
+          source: 'transaction',
+          id: t.id,
+          transactionId: t.transactionId,
+          paidAt: this.toTashkentDate(t.createdAt),
+        });
+      }
+    }
+
+    rows.sort((a, b) => {
+      const aTime = a.paidAt ? new Date(a.paidAt).getTime() : 0;
+      const bTime = b.paidAt ? new Date(b.paidAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    return {
+      from: start,
+      to: end,
+      timeZone: 'Asia/Tashkent',
+      count: rows.length,
+      rows,
+    };
+  }
+
+  async getReconciliationContractSummary(params: {
+    from?: string;
+    to?: string;
+    month?: number;
+    year?: number;
+    method?: PaymentMethod;
+    status?: TxStatus | 'all';
+    sectionId?: number;
+  }) {
+    const range = params.month && params.year
+      ? this.monthRange(params.year, params.month)
+      : this.normalizeRange(params.from, params.to);
+    const { start, end } = (range as any).start ? (range as any) : { start: (range as any).from, end: (range as any).to };
+    const statusFilter = params.status && params.status !== 'all' ? params.status : null;
+    const methodFilter = params.method || null;
+
+    const contracts = await this.prisma.contract.findMany({
+      where: {
+        ...(params.sectionId ? { store: { sectionId: params.sectionId } } : {}),
+      },
+      include: {
+        store: { include: { Section: true } },
+        owner: true,
+        transactions: {
+          where: {
+            createdAt: { gte: start, lte: end },
+            ...(statusFilter ? { status: statusFilter } : {}),
+            ...(methodFilter ? { paymentMethod: methodFilter } : {}),
+          },
+        },
+      },
+    });
+
+    const summary = contracts.map((contract) => {
+      const expected = this.decimalToNumber(contract.shopMonthlyFee);
+      const paidTx = contract.transactions.filter((t) => t.status === 'PAID');
+      const paid = this.sumTransactions(paidTx as any);
+      const unpaid = Math.max(0, expected - paid);
+      const overpaid = paid > expected;
+      const lastPayment = contract.transactions.slice().sort((a, b) => {
+        const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bt - at;
+      })[0];
+      const methodCounts = contract.transactions.reduce(
+        (acc, tx) => {
+          const key = (tx.paymentMethod as PaymentMethod) || 'CASH';
+          acc[key] = (acc[key] || 0) + this.decimalToNumber(tx.amount);
+          return acc;
+        },
+        {} as Record<PaymentMethod, number>,
+      );
+      return {
+        contractId: contract.id,
+        storeNumber: contract.store?.storeNumber || `#${contract.storeId}`,
+        sectionName: contract.store?.Section?.name || null,
+        owner: contract.owner?.fullName || null,
+        expected,
+        paid,
+        unpaid,
+        overpaid,
+        paymentsCount: contract.transactions.length,
+        paidCount: paidTx.length,
+        pendingCount: contract.transactions.filter((t) => t.status === 'PENDING').length,
+        failedCount: contract.transactions.filter((t) => t.status === 'FAILED' || t.status === 'CANCELLED').length,
+        lastPaymentAt: lastPayment?.createdAt || null,
+        lastPaymentMethod: lastPayment?.paymentMethod || null,
+        methods: methodCounts,
+      };
+    });
+
+    return { from: start, to: end, timeZone: 'Asia/Tashkent', summary };
+  }
+
+  async getReconciliationMonthlyRollup(params: {
+    months?: number;
+    type?: 'stall' | 'store' | 'all';
+    method?: PaymentMethod;
+    status?: TxStatus | 'all';
+  }) {
+    const months = Math.min(24, Math.max(1, Number(params.months) || 12));
+    const now = new Date();
+    const labels: string[] = [];
+    const stallSeries: number[] = [];
+    const storeSeries: number[] = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const { start, end, label } = this.monthRange(d.getFullYear(), d.getMonth() + 1);
+      labels.push(label);
+      const ledger = await this.getReconciliationLedger({
+        from: start.toISOString(),
+        to: end.toISOString(),
+        type: params.type || 'all',
+        method: params.method,
+        status: params.status,
+      });
+      stallSeries.push(
+        ledger.rows.filter((r) => r.type === 'stall').reduce((sum, r) => sum + this.decimalToNumber(r.amount), 0),
+      );
+      storeSeries.push(
+        ledger.rows.filter((r) => r.type === 'store').reduce((sum, r) => sum + this.decimalToNumber(r.amount), 0),
+      );
+    }
+    const series: any[] = [];
+    if (params.type !== 'stall') series.push({ key: 'store', data: storeSeries });
+    if (params.type !== 'store') series.push({ key: 'stall', data: stallSeries });
     return { labels, series };
   }
 }
