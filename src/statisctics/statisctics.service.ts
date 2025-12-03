@@ -4,6 +4,7 @@ import { startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns';
 import { Transaction, Attendance } from '@prisma/client';
 
 type EntityType = 'stall' | 'store';
+type PaymentMethod = 'PAYME' | 'CLICK' | 'CASH';
 
 @Injectable()
 export class StatisticsService {
@@ -42,7 +43,18 @@ export class StatisticsService {
     return { from: fromDate, to: toDate };
   }
 
-  private async collectStallPayments(from: Date, to: Date) {
+  private monthRange(year?: number, month?: number) {
+    const now = new Date();
+    const y = Number.isFinite(year) ? Number(year) : now.getFullYear();
+    const m = Number.isFinite(month) ? Number(month) : now.getMonth() + 1; // 1-12
+    if (m < 1 || m > 12) throw new Error('Invalid month. Use 1-12.');
+    const start = startOfMonth(new Date(y, m - 1, 1));
+    const end = endOfMonth(start);
+    const label = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
+    return { start, end, label };
+  }
+
+  private async collectStallPayments(from: Date, to: Date, method?: PaymentMethod) {
     const [paidTransactions, manualAttendances] = await Promise.all([
       this.prisma.transaction.findMany({
         where: {
@@ -54,6 +66,7 @@ export class StatisticsService {
             { status: 'PAID' },
             { attendance: { status: 'PAID' } },
           ],
+          ...(method ? { paymentMethod: method } : {}),
         },
       }),
       this.prisma.attendance.findMany({
@@ -66,17 +79,18 @@ export class StatisticsService {
     ]);
 
     return {
-      count: paidTransactions.length + manualAttendances.length,
-      revenue: this.sumTransactions(paidTransactions) + this.sumAttendances(manualAttendances),
+      count: paidTransactions.length + (method && method !== 'CASH' ? 0 : manualAttendances.length),
+      revenue: this.sumTransactions(paidTransactions) + (method && method !== 'CASH' ? 0 : this.sumAttendances(manualAttendances)),
     };
   }
 
-  private async collectStorePayments(from: Date, to: Date) {
+  private async collectStorePayments(from: Date, to: Date, method?: PaymentMethod) {
     const storePayments = await this.prisma.transaction.findMany({
       where: {
         contract: { isActive: true },
         createdAt: { gte: from, lte: to },
         status: 'PAID',
+        ...(method ? { paymentMethod: method } : {}),
       },
     });
     return {
@@ -136,6 +150,97 @@ export class StatisticsService {
     return {
       revenue: (stallRevenue.revenue || 0) + (storeRevenue.revenue || 0),
     };
+  }
+
+  async getMonthlyStatisticsFor(month: number, year: number, type?: EntityType) {
+    const { start, end, label } = this.monthRange(year, month);
+    const stallResult = !type || type === 'stall'
+      ? await this.collectStallPayments(start, end)
+      : { count: 0, revenue: 0 };
+
+    const storeResult = !type || type === 'store'
+      ? await this.collectStorePayments(start, end)
+      : { count: 0, revenue: 0 };
+
+    return {
+      month: label,
+      count: stallResult.count + storeResult.count,
+      revenue: stallResult.revenue + storeResult.revenue,
+      stall: stallResult,
+      store: storeResult,
+    };
+  }
+
+  async getMonthlyDetails(month: number, year: number, type?: EntityType) {
+    const { start, end, label } = this.monthRange(year, month);
+
+    const stallAll = !type || type === 'stall'
+      ? await this.collectStallPayments(start, end)
+      : { count: 0, revenue: 0 };
+    const storeAll = !type || type === 'store'
+      ? await this.collectStorePayments(start, end)
+      : { count: 0, revenue: 0 };
+
+    // Payment method breakdown (manual stall payments counted as CASH)
+    const methods: Record<PaymentMethod, { count: number; revenue: number }> = {
+      CASH: { count: 0, revenue: 0 },
+      PAYME: { count: 0, revenue: 0 },
+      CLICK: { count: 0, revenue: 0 },
+    };
+    for (const method of ['CASH', 'PAYME', 'CLICK'] as PaymentMethod[]) {
+      const stall = !type || type === 'stall' ? await this.collectStallPayments(start, end, method) : { count: 0, revenue: 0 };
+      const store = !type || type === 'store' ? await this.collectStorePayments(start, end, method) : { count: 0, revenue: 0 };
+      methods[method] = {
+        count: stall.count + store.count,
+        revenue: stall.revenue + store.revenue,
+      };
+    }
+
+    return {
+      month: label,
+      totals: {
+        count: stallAll.count + storeAll.count,
+        revenue: stallAll.revenue + storeAll.revenue,
+      },
+      stall: stallAll,
+      store: storeAll,
+      methods,
+    };
+  }
+
+  async getRecentMonthlySeries(params: { months?: number; type?: 'stall' | 'store' | 'all'; method?: PaymentMethod }) {
+    const months = Math.min(36, Math.max(1, Number(params.months) || 12));
+    const now = new Date();
+    const buckets: { label: string; start: Date; end: Date }[] = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const { start, end, label } = this.monthRange(d.getFullYear(), d.getMonth() + 1);
+      buckets.push({ label, start, end });
+    }
+
+    const labels = buckets.map((b) => b.label);
+    const stallSeries = new Array(months).fill(0);
+    const storeSeries = new Array(months).fill(0);
+
+    const doStall = params.type === 'stall' || params.type === 'all' || !params.type;
+    const doStore = params.type === 'store' || params.type === 'all' || !params.type;
+
+    for (let i = 0; i < buckets.length; i++) {
+      const bucket = buckets[i];
+      if (doStall) {
+        const res = await this.collectStallPayments(bucket.start, bucket.end, params.method);
+        stallSeries[i] = res.revenue;
+      }
+      if (doStore) {
+        const res = await this.collectStorePayments(bucket.start, bucket.end, params.method);
+        storeSeries[i] = res.revenue;
+      }
+    }
+
+    const series: any[] = [];
+    if (doStall) series.push({ key: 'stall', data: stallSeries });
+    if (doStore) series.push({ key: 'store', data: storeSeries });
+    return { labels, series };
   }
 
   async getTotals(params: { from?: string; to?: string; type?: 'stall' | 'store' | 'all'; method?: 'PAYME' | 'CLICK' | 'CASH'; status?: string; }) {

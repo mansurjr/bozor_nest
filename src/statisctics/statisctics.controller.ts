@@ -1,5 +1,5 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiQuery, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiQuery, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { StatisticsService } from './statisctics.service';
 import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 
@@ -35,6 +35,34 @@ export class StatisticsController {
   })
   async getMonthlyStatistics(@Query('type') type?: EntityType) {
     return this.statisticsService.getMonthlyStatistics(type);
+  }
+
+  @Get('monthly/:year/:month')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get statistics for a specific month (1-12)' })
+  @ApiParam({ name: 'year', required: true, type: Number })
+  @ApiParam({ name: 'month', required: true, type: Number, description: '1-12' })
+  @ApiQuery({ name: 'type', enum: ['stall', 'store'], required: false, description: 'Type of entity. Leave empty to include both' })
+  async getMonthStatistics(
+    @Param('year') year: string,
+    @Param('month') month: string,
+    @Query('type') type?: EntityType,
+  ) {
+    return this.statisticsService.getMonthlyStatisticsFor(Number(month), Number(year), type);
+  }
+
+  @Get('monthly/:year/:month/details')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get detailed breakdown (stall/store/methods) for a specific month' })
+  @ApiParam({ name: 'year', required: true, type: Number })
+  @ApiParam({ name: 'month', required: true, type: Number, description: '1-12' })
+  @ApiQuery({ name: 'type', enum: ['stall', 'store'], required: false, description: 'Type of entity. Leave empty to include both' })
+  async getMonthDetails(
+    @Param('year') year: string,
+    @Param('month') month: string,
+    @Query('type') type?: EntityType,
+  ) {
+    return this.statisticsService.getMonthlyDetails(Number(month), Number(year), type);
   }
 
   @Get('current')
@@ -86,5 +114,19 @@ export class StatisticsController {
     @Query('status') status: string = 'PAID',
   ) {
     return this.statisticsService.getSeries({ from, to, groupBy, type, method, status });
+  }
+
+  @Get('series/monthly')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Convenience monthly series for last N months (default 12)' })
+  @ApiQuery({ name: 'months', required: false, description: 'How many recent months to include (max 36)' })
+  @ApiQuery({ name: 'type', enum: ['stall', 'store', 'all'], required: false })
+  @ApiQuery({ name: 'method', enum: ['PAYME', 'CLICK', 'CASH'], required: false })
+  async getMonthlySeries(
+    @Query('months') months?: string,
+    @Query('type') type: 'stall' | 'store' | 'all' = 'all',
+    @Query('method') method?: 'PAYME' | 'CLICK' | 'CASH',
+  ) {
+    return this.statisticsService.getRecentMonthlySeries({ months: Number(months), type, method });
   }
 }
