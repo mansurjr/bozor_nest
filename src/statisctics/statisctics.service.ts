@@ -416,6 +416,7 @@ export class StatisticsService {
           date: this.toTashkentDate(a.date),
           type: 'stall',
           stallId: a.stallId,
+          stallNumber: a.Stall?.stallNumber ?? null,
           sectionId: a.Stall?.sectionId ?? null,
           sectionName: a.Stall?.Section?.name ?? null,
           amount: this.decimalToNumber(a.transaction?.amount ?? a.amount),
