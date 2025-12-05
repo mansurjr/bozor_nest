@@ -87,6 +87,20 @@ export class ClickWebhookService {
         return { click_trans_id, merchant_trans_id, error: -1, error_note: 'SIGN CHECK FAILED' };
       }
 
+      // Prevent duplicate processing by Click transaction id
+      const existingClickTx = await this.prisma.clickTransaction.findUnique({ where: { clickTransId: click_trans_id } });
+      if (existingClickTx) {
+        return { click_trans_id, merchant_trans_id, error: -4, error_note: 'Duplicate transaction' };
+      }
+
+      // Ensure we do not recreate a transaction with the same Click id
+      const existingTxn = await this.prisma.transaction.findUnique({
+        where: { transactionId: String(click_trans_id) },
+      });
+      if (existingTxn) {
+        return { click_trans_id, merchant_trans_id, error: -4, error_note: 'Duplicate transaction' };
+      }
+
       let transaction: any;
       let isDaily = false;
 
@@ -147,7 +161,7 @@ export class ClickWebhookService {
 
         transaction = await this.prisma.transaction.create({
           data: {
-            transactionId: String(store.storeNumber),
+            transactionId: String(click_trans_id),
             amount: new Prisma.Decimal(amount),
             status: 'PENDING',
             paymentMethod: 'CLICK',
@@ -190,7 +204,7 @@ export class ClickWebhookService {
 
         transaction = await this.prisma.transaction.create({
           data: {
-            transactionId: String(attendance.id),
+            transactionId: String(click_trans_id),
             amount: attendance.amount ?? new Prisma.Decimal(amount),
             status: 'PENDING',
             paymentMethod: 'CLICK',
@@ -307,7 +321,10 @@ export class ClickWebhookService {
       }
 
 
-      let transaction = await this.prisma.transaction.findUnique({ where: { transactionId: merchant_trans_id } });
+      // Find by Click transaction id first (new flow), fallback to merchant_trans_id for legacy records
+      let transaction =
+        (await this.prisma.transaction.findUnique({ where: { transactionId: String(click_trans_id) } })) ??
+        (await this.prisma.transaction.findUnique({ where: { transactionId: merchant_trans_id } }));
 
       if (!transaction) {
 
