@@ -199,4 +199,45 @@ export class StatisticsController {
       status,
     });
   }
+
+  // Monthly paid/unpaid for contracts using ContractPaymentPeriod
+  @Get('reconciliation/contracts/monthly-status')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Contracts monthly paid/unpaid status for selected month' })
+  @ApiQuery({ name: 'year', required: true, description: 'Year, e.g., 2024' })
+  @ApiQuery({ name: 'month', required: true, description: 'Month 1-12' })
+  @ApiQuery({ name: 'sectionId', required: false, description: 'Filter by section id' })
+  async getContractsMonthlyStatus(
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @Query('sectionId') sectionId?: string,
+  ) {
+    return this.statisticsService.getContractsMonthlyStatus({
+      year: Number(year),
+      month: Number(month),
+      sectionId: sectionId ? Number(sectionId) : undefined,
+    });
+  }
+
+  // Monthly paid/unpaid for stalls using Attendance within month
+  @Get('reconciliation/stalls/monthly-status')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Stalls monthly paid/unpaid summary for selected month' })
+  @ApiQuery({ name: 'year', required: true, description: 'Year, e.g., 2024' })
+  @ApiQuery({ name: 'month', required: true, description: 'Month 1-12' })
+  @ApiQuery({ name: 'sectionId', required: false, description: 'Filter by section id' })
+  @ApiQuery({ name: 'stallId', required: false, description: 'Filter by stall id' })
+  async getStallsMonthlyStatus(
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('stallId') stallId?: string,
+  ) {
+    return this.statisticsService.getStallsMonthlyStatus({
+      year: Number(year),
+      month: Number(month),
+      sectionId: sectionId ? Number(sectionId) : undefined,
+      stallId: stallId ? Number(stallId) : undefined,
+    });
+  }
 }

@@ -595,4 +595,143 @@ export class StatisticsService {
     if (params.type !== 'store') series.push({ key: 'stall', data: stallSeries });
     return { labels, series };
   }
+
+  private monthStartUtc(year: number, month: number) {
+    const m = Number(month);
+    const y = Number(year);
+    if (!Number.isFinite(m) || !Number.isFinite(y) || m < 1 || m > 12) {
+      throw new Error('Invalid year/month');
+    }
+    return new Date(Date.UTC(y, m - 1, 1));
+  }
+
+  private monthEndUtc(start: Date) {
+    return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+  }
+
+  async getContractsMonthlyStatus(params: { year: number; month: number; sectionId?: number }) {
+    const periodStart = this.monthStartUtc(params.year, params.month);
+    // Load contracts filtered by section if provided
+    const contracts = await this.prisma.contract.findMany({
+      where: {
+        isActive: true,
+        ...(params.sectionId ? { store: { sectionId: params.sectionId } } : {}),
+      },
+      include: {
+        store: { include: { Section: true } },
+        owner: true,
+      },
+    });
+    const ids = contracts.map((c) => c.id);
+    if (!ids.length) {
+      return { paid: [], unpaid: [], totals: { paidCount: 0, unpaidCount: 0, paidAmount: 0, unpaidAmount: 0 } };
+    }
+    const periods = await this.prisma.contractPaymentPeriod.findMany({
+      where: {
+        contractId: { in: ids },
+        periodStart,
+        status: 'PAID',
+      },
+      include: { transaction: true },
+    });
+    const paidMap = new Map<number, typeof periods[number]>();
+    for (const p of periods) paidMap.set(p.contractId, p);
+
+    const paid: any[] = [];
+    const unpaid: any[] = [];
+    let paidAmount = 0;
+    let unpaidAmount = 0;
+
+    for (const c of contracts) {
+      const monthlyFee = this.decimalToNumber(c.shopMonthlyFee);
+      const base = {
+        contractId: c.id,
+        storeNumber: c.store?.storeNumber || `#${c.storeId}`,
+        sectionName: c.store?.Section?.name || null,
+        owner: c.owner?.fullName || null,
+        monthlyFee,
+      };
+      const link = paidMap.get(c.id);
+      if (link) {
+        const amount = this.decimalToNumber(link.amount) || monthlyFee;
+        paid.push({
+          ...base,
+          paid: true,
+          transactionId: link.transactionId,
+          amount,
+          periodStart,
+          lastPaymentAt: link.transaction?.createdAt || null,
+          lastPaymentMethod: (link.transaction?.paymentMethod as any) || null,
+        });
+        paidAmount += amount;
+      } else {
+        unpaid.push({ ...base, paid: false, debt: monthlyFee, periodStart });
+        unpaidAmount += monthlyFee;
+      }
+    }
+
+    return {
+      paid,
+      unpaid,
+      totals: {
+        paidCount: paid.length,
+        unpaidCount: unpaid.length,
+        paidAmount,
+        unpaidAmount,
+      },
+    };
+  }
+
+  async getStallsMonthlyStatus(params: { year: number; month: number; sectionId?: number; stallId?: number }) {
+    const start = this.monthStartUtc(params.year, params.month);
+    const end = this.monthEndUtc(start);
+    const attendances = await this.prisma.attendance.findMany({
+      where: {
+        date: { gte: start, lt: end },
+        ...(params.stallId ? { stallId: params.stallId } : {}),
+        ...(params.sectionId ? { Stall: { sectionId: params.sectionId } } : {}),
+      },
+      include: {
+        transaction: true,
+        Stall: { include: { Section: true } },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    const byStall = new Map<number, any>();
+    for (const a of attendances) {
+      const stallId = a.stallId;
+      const ref = byStall.get(stallId) || {
+        stallId,
+        stallNumber: a.Stall?.stallNumber ?? null,
+        sectionName: a.Stall?.Section?.name ?? null,
+        paidCount: 0,
+        paidAmount: 0,
+        unpaidCount: 0,
+        unpaidAmount: 0,
+      };
+      const amount = this.decimalToNumber(a.transaction?.amount ?? a.amount);
+      const isPaid = (a.transaction?.status === 'PAID') || (a.status as any) === 'PAID';
+      if (isPaid) {
+        ref.paidCount += 1;
+        ref.paidAmount += amount;
+      } else {
+        ref.unpaidCount += 1;
+        ref.unpaidAmount += amount;
+      }
+      byStall.set(stallId, ref);
+    }
+
+    const rows = Array.from(byStall.values()).map((r) => ({ ...r, debt: r.unpaidAmount }));
+    const totals = rows.reduce(
+      (acc, r) => {
+        acc.paidAmount += r.paidAmount;
+        acc.unpaidAmount += r.unpaidAmount;
+        return acc;
+      },
+      { stalls: rows.length, paidAmount: 0, unpaidAmount: 0 },
+    );
+
+    return { start, end, rows, totals };
+  }
 }
