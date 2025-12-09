@@ -383,6 +383,8 @@ export class StatisticsService {
     sectionId?: number;
     contractId?: number;
     stallId?: number;
+    page?: number;
+    limit?: number;
   }) {
     const range = params.month && params.year
       ? this.monthRange(params.year, params.month)
@@ -477,12 +479,24 @@ export class StatisticsService {
       return bTime - aTime;
     });
 
+    const total = rows.length;
+    const take = Math.min(500, Math.max(1, Number(params.limit) || 50));
+    const currentPage = Math.max(1, Number(params.page) || 1);
+    const skip = (currentPage - 1) * take;
+    const paged = rows.slice(skip, skip + take);
+
     return {
       from: start,
       to: end,
       timeZone: 'Asia/Tashkent',
-      count: rows.length,
-      rows,
+      count: total,
+      rows: paged,
+      pagination: {
+        total,
+        page: currentPage,
+        limit: take,
+        totalPages: Math.max(1, Math.ceil(total / take)),
+      },
     };
   }
 

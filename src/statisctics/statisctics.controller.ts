@@ -145,6 +145,8 @@ export class StatisticsController {
     @Query('sectionId') sectionId?: string,
     @Query('contractId') contractId?: string,
     @Query('stallId') stallId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.statisticsService.getReconciliationLedger({
       from,
@@ -157,6 +159,8 @@ export class StatisticsController {
       sectionId: sectionId ? Number(sectionId) : undefined,
       contractId: contractId ? Number(contractId) : undefined,
       stallId: stallId ? Number(stallId) : undefined,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
     });
   }
 
