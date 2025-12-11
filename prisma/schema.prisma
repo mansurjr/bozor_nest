@@ -83,6 +83,7 @@ model Contract {
   issueDate         DateTime?
   expiryDate        DateTime?
   isActive          Boolean       @default(true)
+  paymentType       ContractPaymentType @default(ONLINE)
   shopMonthlyFee    Decimal?
   ownerId           Int
   storeId           Int
@@ -211,6 +212,11 @@ enum ContractPaymentStatus {
   PENDING
   PAID
   REVERSED
+}
+
+enum ContractPaymentType {
+  ONLINE
+  BANK_ONLY
 }
 
 enum AttendancePayment {

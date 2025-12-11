@@ -1,5 +1,6 @@
-import { IsInt, IsOptional, IsDateString, IsBoolean, IsNumber } from 'class-validator';
+import { IsInt, IsOptional, IsDateString, IsBoolean, IsNumber, IsEnum } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ContractPaymentType } from '@prisma/client';
 
 export class CreateContractDto {
   @ApiPropertyOptional({ description: 'Certificate number', example: 'C-001' })
@@ -20,6 +21,15 @@ export class CreateContractDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean = true;
+
+  @ApiPropertyOptional({
+    description: 'Payment type of contract',
+    enum: ContractPaymentType,
+    default: ContractPaymentType.ONLINE,
+  })
+  @IsOptional()
+  @IsEnum(ContractPaymentType)
+  paymentType?: ContractPaymentType;
 
   @ApiPropertyOptional({ description: 'Monthly shop fee', example: 500 })
   @IsOptional()

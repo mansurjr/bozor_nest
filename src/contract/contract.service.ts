@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
-import { Prisma, ContractPaymentStatus } from "@prisma/client";
+import { Prisma, ContractPaymentStatus, ContractPaymentType } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
 import * as base64 from "base-64";
 import { ContractPaymentPeriodsService } from "./contract-payment.service";
@@ -229,6 +229,7 @@ export class ContractService {
       data: {
         ...dto,
         createdById,
+        paymentType: dto.paymentType ?? ContractPaymentType.ONLINE,
         issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
         shopMonthlyFee: dto.shopMonthlyFee ?? undefined,
@@ -256,11 +257,22 @@ export class ContractService {
     return this.ensureStorePaymentLinks(created);
   }
 
-  async findAll(page = 1, limit = 10, isActive?: boolean, search?: string, paid?: string) {
+  async findAll(
+    page = 1,
+    limit = 10,
+    isActive?: boolean,
+    search?: string,
+    paid?: string,
+    paymentType?: ContractPaymentType,
+  ) {
     const where: any = {};
 
     if (isActive !== undefined) {
       where.isActive = isActive;
+    }
+
+    if (paymentType) {
+      where.paymentType = paymentType;
     }
 
     // Apply paid/unpaid filter for current month if requested
@@ -420,6 +432,7 @@ export class ContractService {
     if (dto.issueDate) data.issueDate = new Date(dto.issueDate);
     if (dto.expiryDate) data.expiryDate = new Date(dto.expiryDate);
     if (dto.shopMonthlyFee !== undefined) data.shopMonthlyFee = dto.shopMonthlyFee as any;
+    if (dto.paymentType !== undefined) data.paymentType = dto.paymentType;
 
     if (dto.ownerId !== undefined) {
       const owner = await this.prisma.owner.findUnique({

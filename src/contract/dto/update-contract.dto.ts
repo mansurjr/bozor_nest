@@ -1,6 +1,7 @@
 import { PartialType } from '@nestjs/swagger';
 import { CreateContractDto } from './create-contract.dto';
-import { IsOptional, IsBoolean, IsNumber } from 'class-validator';
+import { IsOptional, IsBoolean, IsNumber, IsEnum } from 'class-validator';
+import { ContractPaymentType } from '@prisma/client';
 
 export class UpdateContractDto extends PartialType(CreateContractDto) {
   @IsOptional()
@@ -10,4 +11,8 @@ export class UpdateContractDto extends PartialType(CreateContractDto) {
   @IsOptional()
   @IsNumber()
   shopMonthlyFee?: number;
+
+  @IsOptional()
+  @IsEnum(ContractPaymentType)
+  paymentType?: ContractPaymentType;
 }

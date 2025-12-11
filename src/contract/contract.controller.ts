@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { GetCurrentUser } from '../common/decorators/getCurrentUserid';
 import { ContractPaymentPeriodsService } from './contract-payment.service';
 import { ManualPaymentDto } from './dto/manual-payment.dto';
+import { ContractPaymentType } from '@prisma/client';
 
 @ApiTags('Contracts')
 @ApiBearerAuth()
@@ -32,16 +33,24 @@ export class ContractController {
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of items per page' })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean, description: 'Filter by active/inactive contracts' })
   @ApiQuery({ name: 'paid', required: false, type: String, description: 'Filter by payment status for current month: paid|unpaid|true|false' })
+  @ApiQuery({
+    name: 'paymentType',
+    required: false,
+    enum: ContractPaymentType,
+    description: 'Filter contracts by payment type',
+  })
   findAll(
     @Query('page', ParseIntPipe) page = 1,
     @Query('limit', ParseIntPipe) limit = 10,
     @Query('isActive') isActive?: string,
     @Query('paid') paid?: string,
+    @Query('paymentType') paymentType?: string,
   ) {
     const activeFilter =
       isActive !== undefined ? isActive === 'true' : undefined;
+    const paymentTypeFilter = this.parsePaymentType(paymentType);
 
-    return this.contractService.findAll(page, limit, activeFilter, undefined, paid);
+    return this.contractService.findAll(page, limit, activeFilter, undefined, paid, paymentTypeFilter);
   }
 
 
@@ -98,5 +107,15 @@ export class ContractController {
   @ApiOperation({ summary: 'Delete contract by ID' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.contractService.remove(id);
+  }
+
+  private parsePaymentType(input?: string): ContractPaymentType | undefined {
+    if (!input) return undefined;
+    const normalized = input.trim().toUpperCase();
+    return normalized === ContractPaymentType.BANK_ONLY
+      ? ContractPaymentType.BANK_ONLY
+      : normalized === ContractPaymentType.ONLINE
+        ? ContractPaymentType.ONLINE
+        : undefined;
   }
 }
