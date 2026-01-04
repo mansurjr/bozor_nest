@@ -164,6 +164,80 @@ export class StatisticsController {
     });
   }
 
+  @Get('reconciliation/ledger/totals')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Ledger totals grouped by method for all matching rows' })
+  @ApiQuery({ name: 'month', required: false })
+  @ApiQuery({ name: 'year', required: false })
+  @ApiQuery({ name: 'type', enum: ['stall', 'store', 'all'], required: false })
+  @ApiQuery({ name: 'method', enum: ['PAYME', 'CLICK', 'CASH'], required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'sectionId', required: false })
+  @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'stallId', required: false })
+  async getReconciliationLedgerTotals(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('type') type: 'stall' | 'store' | 'all' = 'all',
+    @Query('method') method?: 'PAYME' | 'CLICK' | 'CASH',
+    @Query('status') status?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('contractId') contractId?: string,
+    @Query('stallId') stallId?: string,
+  ) {
+    return this.statisticsService.getReconciliationLedgerTotals({
+      from,
+      to,
+      month: month ? Number(month) : undefined,
+      year: year ? Number(year) : undefined,
+      type,
+      method,
+      status,
+      sectionId: sectionId ? Number(sectionId) : undefined,
+      contractId: contractId ? Number(contractId) : undefined,
+      stallId: stallId ? Number(stallId) : undefined,
+    });
+  }
+
+  @Get('reconciliation/ledger/export')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Export full ledger with filters (no pagination)' })
+  @ApiQuery({ name: 'month', required: false })
+  @ApiQuery({ name: 'year', required: false })
+  @ApiQuery({ name: 'type', enum: ['stall', 'store', 'all'], required: false })
+  @ApiQuery({ name: 'method', enum: ['PAYME', 'CLICK', 'CASH'], required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'sectionId', required: false })
+  @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'stallId', required: false })
+  async exportReconciliationLedger(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+    @Query('type') type: 'stall' | 'store' | 'all' = 'all',
+    @Query('method') method?: 'PAYME' | 'CLICK' | 'CASH',
+    @Query('status') status?: string,
+    @Query('sectionId') sectionId?: string,
+    @Query('contractId') contractId?: string,
+    @Query('stallId') stallId?: string,
+  ) {
+    return this.statisticsService.getReconciliationLedgerExport({
+      from,
+      to,
+      month: month ? Number(month) : undefined,
+      year: year ? Number(year) : undefined,
+      type,
+      method,
+      status,
+      sectionId: sectionId ? Number(sectionId) : undefined,
+      contractId: contractId ? Number(contractId) : undefined,
+      stallId: stallId ? Number(stallId) : undefined,
+    });
+  }
+
   @Get('reconciliation/contracts')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Shartnoma bo‘yicha yig‘indi: oylik ijara vs to‘langan, ortiqcha yoki kam' })

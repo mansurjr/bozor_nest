@@ -55,6 +55,16 @@ export class StatisticsService {
     return { start, end, label };
   }
 
+  private getReconciliationRange(params: { from?: string; to?: string; month?: number; year?: number }) {
+    const range = params.month && params.year
+      ? this.monthRange(params.year, params.month)
+      : this.normalizeRange(params.from, params.to);
+    const { start, end } = (range as any).start
+      ? (range as any)
+      : { start: (range as any).from, end: (range as any).to };
+    return { start, end };
+  }
+
   private async collectStallPayments(from: Date, to: Date, method?: PaymentMethod) {
     const [paidTransactions, manualAttendances] = await Promise.all([
       this.prisma.transaction.findMany({
@@ -386,10 +396,93 @@ export class StatisticsService {
     page?: number;
     limit?: number;
   }) {
-    const range = params.month && params.year
-      ? this.monthRange(params.year, params.month)
-      : this.normalizeRange(params.from, params.to);
-    const { start, end } = (range as any).start ? (range as any) : { start: (range as any).from, end: (range as any).to };
+    const { start, end } = this.getReconciliationRange(params);
+    const rows = await this.buildReconciliationLedgerRows({ ...params, start, end });
+
+    const total = rows.length;
+    const take = Math.min(500, Math.max(1, Number(params.limit) || 50));
+    const currentPage = Math.max(1, Number(params.page) || 1);
+    const skip = (currentPage - 1) * take;
+    const paged = rows.slice(skip, skip + take);
+
+    return {
+      from: start,
+      to: end,
+      timeZone: 'Asia/Tashkent',
+      count: total,
+      rows: paged,
+      pagination: {
+        total,
+        page: currentPage,
+        limit: take,
+        totalPages: Math.max(1, Math.ceil(total / take)),
+      },
+    };
+  }
+
+  async getReconciliationLedgerTotals(params: {
+    from?: string;
+    to?: string;
+    month?: number;
+    year?: number;
+    type?: 'stall' | 'store' | 'all';
+    method?: PaymentMethod;
+    status?: TxStatus | 'all';
+    sectionId?: number;
+    contractId?: number;
+    stallId?: number;
+  }) {
+    const { start, end } = this.getReconciliationRange(params);
+    const rows = await this.buildReconciliationLedgerRows({ ...params, start, end });
+    const totals: Record<'all' | PaymentMethod, number> = {
+      all: 0,
+      PAYME: 0,
+      CLICK: 0,
+      CASH: 0,
+    };
+    for (const row of rows) {
+      const amount = this.decimalToNumber(row.amount);
+      totals.all += amount;
+      const method = (row.method as PaymentMethod) || 'CASH';
+      totals[method] += amount;
+    }
+    return totals;
+  }
+
+  async getReconciliationLedgerExport(params: {
+    from?: string;
+    to?: string;
+    month?: number;
+    year?: number;
+    type?: 'stall' | 'store' | 'all';
+    method?: PaymentMethod;
+    status?: TxStatus | 'all';
+    sectionId?: number;
+    contractId?: number;
+    stallId?: number;
+  }) {
+    const { start, end } = this.getReconciliationRange(params);
+    const rows = await this.buildReconciliationLedgerRows({ ...params, start, end });
+    return {
+      from: start,
+      to: end,
+      timeZone: 'Asia/Tashkent',
+      count: rows.length,
+      rows,
+    };
+  }
+
+  private async buildReconciliationLedgerRows(params: {
+    start: Date;
+    end: Date;
+    type?: 'stall' | 'store' | 'all';
+    method?: PaymentMethod;
+    status?: TxStatus | 'all';
+    sectionId?: number;
+    contractId?: number;
+    stallId?: number;
+  }) {
+    const { start, end } = params;
     const doStall = !params.type || params.type === 'all' || params.type === 'stall';
     const doStore = !params.type || params.type === 'all' || params.type === 'store';
     const statusFilter = params.status && params.status !== 'all' ? params.status : null;
@@ -479,25 +572,7 @@ export class StatisticsService {
       return bTime - aTime;
     });
 
-    const total = rows.length;
-    const take = Math.min(500, Math.max(1, Number(params.limit) || 50));
-    const currentPage = Math.max(1, Number(params.page) || 1);
-    const skip = (currentPage - 1) * take;
-    const paged = rows.slice(skip, skip + take);
-
-    return {
-      from: start,
-      to: end,
-      timeZone: 'Asia/Tashkent',
-      count: total,
-      rows: paged,
-      pagination: {
-        total,
-        page: currentPage,
-        limit: take,
-        totalPages: Math.max(1, Math.ceil(total / take)),
-      },
-    };
+    return rows;
   }
 
   async getReconciliationContractSummary(params: {
