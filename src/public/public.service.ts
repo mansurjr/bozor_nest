@@ -208,6 +208,7 @@ export class PublicService {
   async contract(query: GetContractsDto) {
     const normalizedStoreNumber = normalizeStoreNumber(query.storeNumber);
     const normalizedTin = normalizeTin(query.tin);
+    const fields = query.fields;
 
     if (!normalizedStoreNumber && !normalizedTin) {
       throw new BadRequestException(
@@ -258,6 +259,61 @@ export class PublicService {
           },
         },
       };
+
+    if (fields === 'min') {
+      const contracts = await this.prisma.contract.findMany({
+        where,
+        select: {
+          id: true,
+          shopMonthlyFee: true,
+          issueDate: true,
+          createdAt: true,
+          expiryDate: true,
+          storeId: true,
+          store: { select: { storeNumber: true } },
+          owner: { select: { fullName: true } },
+        },
+      });
+
+      if (!contracts.length) {
+        return {
+          count: 0,
+          data: [],
+        };
+      }
+
+      const snapshots = await this.contractPayments.getSnapshotsForContracts(
+        contracts.map((c: any) => ({
+          id: c.id,
+          issueDate: c.issueDate,
+          createdAt: c.createdAt,
+          shopMonthlyFee: c.shopMonthlyFee,
+        })) as any,
+      );
+
+      const periodLabel = dayjs().format('MMMM YYYY');
+      const result = contracts.map((contract: any) => {
+        const snap = snapshots.get(contract.id);
+        const amountString = this.normalizeAmount(contract.shopMonthlyFee);
+        const amountDue = amountString ? Number(amountString) : null;
+        const isPaid = snap?.hasCurrentPeriodPaid ?? false;
+        return {
+          id: contract.id,
+          storeNumber: contract.store?.storeNumber ?? contract.storeId,
+          ownerName: contract.owner?.fullName ?? null,
+          periodLabel,
+          amountDue,
+          currency: amountDue ? 'UZS' : null,
+          isPaid,
+          status: isPaid ? 'PAID' : 'UNPAID',
+        };
+      });
+
+      return {
+        count: result.length,
+        data: result,
+      };
+    }
 
 
     const contracts = await this.prisma.contract.findMany({
@@ -398,7 +454,7 @@ export class PublicService {
   }
 
   async getStallStatus(query: GetStallDto) {
-    const { id, date } = query;
+    const { id, date, fields } = query;
 
     if (!id) {
       throw new BadRequestException('Stall number is required');
@@ -407,6 +463,76 @@ export class PublicService {
     const targetDate = date ? dayjs(date).startOf('day') : dayjs().startOf('day');
     const startOfDay = targetDate.startOf('day');
     const endOfDay = targetDate.endOf('day');
+
+    if (fields === 'min') {
+      const stalls = await this.prisma.stall.findMany({
+        where: {
+          stallNumber: {
+            contains: id.toString(),
+            mode: 'insensitive',
+          },
+        },
+        select: {
+          stallNumber: true,
+          dailyFee: true,
+          attendances: {
+            where: {
+              date: {
+                gte: startOfDay.toDate(),
+                lte: endOfDay.toDate(),
+              },
+            },
+            select: {
+              status: true,
+              amount: true,
+              date: true,
+              transaction: {
+                select: {
+                  status: true,
+                  amount: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+            take: 1,
+          },
+        },
+      });
+
+      if (!stalls.length) {
+        throw new NotFoundException(`No stalls found matching number "${id}"`);
+      }
+
+      const result = stalls.map((stall) => {
+        const todayAttendance = stall.attendances[0] || null;
+        const isPaid =
+          todayAttendance?.status === 'PAID' ||
+          todayAttendance?.transaction?.status === 'PAID';
+        const amountDue = todayAttendance
+          ? this.toNumber(todayAttendance.amount)
+          : this.toNumber(stall.dailyFee);
+        const status = todayAttendance
+          ? (isPaid ? 'PAID' : todayAttendance.status || 'UNPAID')
+          : 'NO_ATTENDANCE';
+
+        return {
+          stallNumber: stall.stallNumber,
+          date: targetDate.format('YYYY-MM-DD'),
+          amountDue,
+          currency: amountDue ? 'UZS' : null,
+          isPaid: !!isPaid,
+          status,
+        };
+      });
+
+      return {
+        count: result.length,
+        data: result,
+        date: targetDate.format('YYYY-MM-DD'),
+      };
+    }
 
     const stalls = await this.prisma.stall.findMany({
       where: {

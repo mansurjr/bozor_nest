@@ -17,6 +17,7 @@ export class PublicController {
   })
   @ApiQuery({ name: 'storeNumber', required: false, description: 'Store number' })
   @ApiQuery({ name: 'tin', required: false, description: 'Tax Identification Number' })
+  @ApiQuery({ name: 'fields', required: false, description: 'Use "min" for minimal list items' })
   @ApiResponse({
     status: 200,
     description: 'List of matching contracts with payment status for this month',
@@ -55,13 +56,19 @@ export class PublicController {
     description: 'Optional date in YYYY-MM-DD format (defaults to today)',
     example: '2025-10-25',
   })
+  @ApiQuery({
+    name: 'fields',
+    required: false,
+    description: 'Use "min" for minimal list items',
+    example: 'min',
+  })
   @ApiResponse({
     status: 200,
     description: 'List of stalls with payment status for the selected date',
   })
   @ApiResponse({ status: 404, description: 'No stalls found' })
-  async getStall(@Param('id') id: string, @Query('date') date?: string) {
-    return this.publicService.getStallStatus({ id, date });
+  async getStall(@Param('id') id: string, @Query('date') date?: string, @Query('fields') fields?: 'min') {
+    return this.publicService.getStallStatus({ id, date, fields });
   }
 
   @Post('contracts/:id/pay')

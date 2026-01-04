@@ -1,6 +1,6 @@
 // src/pay/dto/get-contracts.dto.ts
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, Length, Matches } from 'class-validator';
+import { IsIn, IsOptional, IsString, Length, Matches } from 'class-validator';
 
 export class GetContractsDto {
   @ApiPropertyOptional({
@@ -20,4 +20,13 @@ export class GetContractsDto {
   @Matches(/^\d+$/, { message: 'TIN must contain only digits' })
   @Length(6, 15, { message: 'TIN must be between 6 and 15 digits long' })
   tin?: string;
+
+  @ApiPropertyOptional({
+    description: 'Response shape hint (use "min" for minimal list items)',
+    example: 'min',
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['min'])
+  fields?: 'min';
 }

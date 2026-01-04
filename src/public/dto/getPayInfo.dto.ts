@@ -1,6 +1,6 @@
 // src/pay/dto/get-stall.dto.ts
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, Min, IsOptional, IsDateString, IsString } from 'class-validator';
+import { IsIn, IsInt, Min, IsOptional, IsDateString, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class GetStallDto {
@@ -15,4 +15,13 @@ export class GetStallDto {
   @IsOptional()
   @IsDateString({}, { message: 'Date must be in YYYY-MM-DD format' })
   date?: string;
+
+  @ApiPropertyOptional({
+    description: 'Response shape hint (use "min" for minimal list items)',
+    example: 'min',
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['min'])
+  fields?: 'min';
 }

@@ -164,9 +164,12 @@ All routes are prefixed by `/api`.
 ### Public Payments (`/public/pay`)
 - `GET /public/pay/contracts?storeNumber=...&tin=...`
   - Search active contracts; returns payment status and links.
+  - Use `fields=min` for a minimal list payload (id, storeNumber, ownerName, periodLabel, amountDue, currency, isPaid).
 - `GET /public/pay/contracts/:id` - contract details + payment info.
 - `POST /public/pay/contracts/:id/pay` - ensure payment links exist and return payment info.
-- `GET /public/pay/stalls/:id?date=YYYY-MM-DD` - find stalls by number, include attendance + payment status for date.
+- `GET /public/pay/stalls/:id?date=YYYY-MM-DD`
+  - Find stalls by number, include attendance + payment status for date.
+  - Use `fields=min` for a minimal list payload (stallNumber, date, amountDue, currency, isPaid).
 
 ### Click Webhook (`/click`)
 - `POST /click/prepare` - validate signature, create pending transaction + ClickTransaction.
