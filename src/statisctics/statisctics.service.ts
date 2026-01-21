@@ -123,7 +123,7 @@ export class StatisticsService {
     const todayEnd = endOfDay(new Date());
 
     const stallResult = !type || type === 'stall'
-      ? await this.collectStallPayments(todayStart, todayEnd, "PAYME" )
+      ? await this.collectStallPayments(todayStart, todayEnd, "CASH" )
       : { count: 0, revenue: 0 };
 
     const storeResult = !type || type === 'store'
