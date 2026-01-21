@@ -133,6 +133,8 @@ export class StatisticsService {
     return {
       count: stallResult.count + storeResult.count,
       revenue: stallResult.revenue + storeResult.revenue,
+      todayStart,
+      todayEnd,
     };
   }
 
