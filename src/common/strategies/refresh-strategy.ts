@@ -7,22 +7,28 @@ import {
   JwtPayloadWithRefreshToken,
   JwtService,
 } from "../../jwt/jwt.service";
+import { ConfigService } from "@nestjs/config";
+
 
 @Injectable()
 export class RefreshJwtStrategy extends PassportStrategy(
   Strategy,
   "jwt-refresh"
 ) {
-  constructor(private readonly tokensService: JwtService) {
+  constructor(
+    private readonly tokensService: JwtService,
+    private readonly configService: ConfigService
+  ) {
     super({
       jwtFromRequest: (req: Request) => {
         console.log("REFRESH COOKIES =>", req.cookies);
         return req?.cookies?.refreshToken || null;
       },
-      secretOrKey: process.env.REFRESH_SECRET!,
+      secretOrKey: configService.get<string>("REFRESH_SECRET")!,
       passReqToCallback: true,
     });
   }
+
 
   async validate(req: Request, payload: JwtPayload) {
     const token = req.cookies?.refreshToken;

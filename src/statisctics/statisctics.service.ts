@@ -18,6 +18,16 @@ export class StatisticsService {
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
+  /**
+   * Prisma treats @db.Date fields by converting the Date object to UTC and taking the date part.
+   * If we have 2026-01-21 00:00:00 +05:00, it becomes 2026-01-20 19:00:00Z, which Prisma sends as 2026-01-20.
+   * This helper returns a Date at 00:00:00 UTC for the given local date, ensuring the correct date string is sent.
+   */
+  private toUtcDate(d: Date) {
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  }
+
+
   private sumTransactions(transactions: Transaction[]) {
     return transactions.reduce((sum, t) => sum + this.decimalToNumber(t.amount), 0);
   }
@@ -39,10 +49,12 @@ export class StatisticsService {
 
   private normalizeRange(from?: string, to?: string) {
     const now = new Date();
+    // Use local start/end of day. Since the server is in +05:00, this is Tashkent time.
     const fromDate = this.parseDate(from) ?? startOfDay(now);
     const toDate = this.parseDate(to) ?? endOfDay(now);
     return { from: fromDate, to: toDate };
   }
+
 
   private monthRange(year?: number, month?: number) {
     const now = new Date();
@@ -70,9 +82,8 @@ export class StatisticsService {
       this.prisma.transaction.findMany({
         where: {
           attendanceId: { not: null },
-          attendance: {
-            date: { gte: from, lte: to },
-          },
+          // Use createdAt to track money flow for the requested period
+          createdAt: { gte: from, lte: to },
           OR: [
             { status: 'PAID' },
             { attendance: { status: 'PAID' } },
@@ -82,7 +93,8 @@ export class StatisticsService {
       }),
       this.prisma.attendance.findMany({
         where: {
-          date: { gte: from, lte: to },
+          // For manual payments, we use the attendance date, but must fix the UTC shift
+          date: { gte: this.toUtcDate(from), lte: this.toUtcDate(to) },
           status: 'PAID',
           transaction: { is: null },
         },
@@ -94,6 +106,9 @@ export class StatisticsService {
       revenue: this.sumTransactions(paidTransactions) + (method && method !== 'CASH' ? 0 : this.sumAttendances(manualAttendances)),
     };
   }
+
+
+
 
   private toTashkentDate(value: Date | string | number) {
     const d = new Date(value);
@@ -332,7 +347,7 @@ export class StatisticsService {
     let attendances: Attendance[] = [];
     if (doStall) {
       attendances = await this.prisma.attendance.findMany({
-        where: { date: { gte: from, lte: to }, status: status as any },
+        where: { date: { gte: this.toUtcDate(from), lte: this.toUtcDate(to) }, status: status as any },
       });
     }
     let transactions: Transaction[] = [];
@@ -493,7 +508,7 @@ export class StatisticsService {
     if (doStall) {
       const attendances = await this.prisma.attendance.findMany({
         where: {
-          date: { gte: start, lte: end },
+          date: { gte: this.toUtcDate(start), lte: this.toUtcDate(end) },
           ...(statusFilter ? { status: statusFilter as any } : {}),
           ...(params.stallId ? { stallId: params.stallId } : {}),
           ...(params.sectionId ? { Stall: { sectionId: params.sectionId } } : {}),
