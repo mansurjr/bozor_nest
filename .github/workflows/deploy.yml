@@ -35,4 +35,8 @@ jobs:
         with:
           to: "8478335566"
           token: ${{ secrets.TELEGRAM_TOKEN }}
-          message: "🚀 MyRent Backend has been deployed successfully to the server."
+          message: |
+          🚀 MyRent Backend has been deployed successfully to the server!Repository: ${{ github.repository }}
+          Repository: ${{ github.repository }}
+          Triggered by: ${{ github.actor }}
+          Commit: ${{ github.sha }}
