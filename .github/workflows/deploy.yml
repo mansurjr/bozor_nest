@@ -25,3 +25,14 @@ jobs:
           script: |
             cd /root/backend
             ./deploy.sh "${{ github.event.inputs.api }}"
+  telegram:
+    needs: deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Telegram Notification
+        uses: appleboy/telegram-action@v0.1.5
+        with:
+          to: "8478335566"
+          token: "8326579724:AAHRsNAluyIFVVf3siXwwo2B2GZqUYWWa90"
+          message: "🚀 MyRent Backend has been deployed successfully to the server."
