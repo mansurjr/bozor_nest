@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Send Telegram Notification
-        uses: appleboy/telegram-action@v0.1.5
+        uses: appleboy/telegram-action@v0.2.0
         with:
           to: "8478335566"
           token: "8326579724:AAHRsNAluyIFVVf3siXwwo2B2GZqUYWWa90"
