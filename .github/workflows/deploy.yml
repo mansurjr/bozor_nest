@@ -34,5 +34,5 @@ jobs:
         uses: appleboy/telegram-action@v0.2.0
         with:
           to: "8478335566"
-          token: "8326579724:AAHRsNAluyIFVVf3siXwwo2B2GZqUYWWa90"
+          token: ${{ secrets.TELEGRAM_TOKEN }}
           message: "🚀 MyRent Backend has been deployed successfully to the server."
