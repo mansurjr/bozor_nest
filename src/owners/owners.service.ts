@@ -29,7 +29,7 @@ export class OwnersService {
     const [owners, total] = await Promise.all([
       this.prisma.owner.findMany({
         where,
-        include: { createdBy: true, contracts: { include: { store: true } } },
+        include: { createdBy: { select: { firstName: true, lastName: true } }, contracts: { include: { store: true }, select: { id: true, certificateNumber: true, expiryDate: true, isActive: true, shopMonthlyFee: true, createdBy: { select: { firstName: true, lastName: true } }, store: { select: { id: true, storeNumber: true, area: true, sectionId : true } } } } },
         skip,
         take: limit,
       }),
