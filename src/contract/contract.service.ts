@@ -78,7 +78,7 @@ export class ContractService {
       return null;
     }
 
-    const params = `m=${merchantId};ac.contractId=${contractReference};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=https://myrent.uz/contracts`;
+    const params = `m=${merchantId};ac.contractId=${contractReference.toString()};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=https://myrent.uz/contracts`;
     console.log("Params", params);
     const latinPayload = Buffer.from(params, "utf8").toString("latin1");
     const encoded = base64.encode(latinPayload);
