@@ -57,12 +57,10 @@ export class ContractService {
   }
 
   private buildPaymePaymentUrl(amount: number | null, contractReference: string | number) {
-    const configTenantId = this.config.get<string>("TENANT_ID")?.trim().replace(/['",]/g, '') || '';
-    if (!amount || configTenantId !== "ipak_yuli"){
+    if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli"){
       console.log("Invalid amount or tenant id");
       console.log("Amount", amount);
-      console.log("Raw Tenant id", this.config.get<string>("TENANT_ID"));
-      console.log("Sanitized Tenant id", configTenantId);
+      console.log("Tenant id", this.config.get<string>("TENANT_ID"));
       return null;
     }
 
@@ -81,7 +79,6 @@ export class ContractService {
     }
 
     const params = `m=${merchantId};ac.contractId=${contractReference};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=https://myrent.uz/contracts`;
-    console.log("Params", params);
     const latinPayload = Buffer.from(params, "utf8").toString("latin1");
     const encoded = base64.encode(latinPayload);
     return `https://checkout.paycom.uz/${encoded}`;
