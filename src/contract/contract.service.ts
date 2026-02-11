@@ -59,8 +59,8 @@ export class ContractService {
   private buildPaymePaymentUrl(amount: string | null, contractReference: string | number) {
     if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli"){
       console.log("Invalid amount or tenant id");
-      console.log(amount);
-      console.log(this.config.get<string>("TENANT_ID"));
+      console.log("Amount", amount);
+      console.log("Tenant id", this.config.get<string>("TENANT_ID"));
       return null;
     }
 
