@@ -137,10 +137,19 @@ export class AttendanceService {
   async findAll(
     page = 1,
     limit = 10,
-    filters?: { stallId?: number; date?: string; dateFrom?: string; dateTo?: string },
+    filters?: { stallId?: number; date?: string; dateFrom?: string; dateTo?: string; search?: string },
   ) {
     const where: any = {};
     if (filters?.stallId) where.stallId = filters.stallId;
+
+    if (filters?.search) {
+      where.Stall = {
+        OR: [
+          { stallNumber: { contains: filters.search, mode: 'insensitive' } },
+          { description: { contains: filters.search, mode: 'insensitive' } },
+        ],
+      };
+    }
     if (filters?.date || filters?.dateFrom || filters?.dateTo) {
       where.date = {};
       const startInput = filters.date || filters.dateFrom;

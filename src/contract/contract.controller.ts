@@ -46,6 +46,7 @@ export class ContractController {
   })
   @ApiQuery({ name: 'ownerId', required: false, type: Number, description: 'Filter by Owner ID' })
   @ApiQuery({ name: 'storeId', required: false, type: Number, description: 'Filter by Store ID' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by owner name, store number or certificate number' })
   findAll(
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 10,
@@ -54,6 +55,7 @@ export class ContractController {
     @Query('paymentType') paymentType?: string,
     @Query('ownerId', new ParseIntPipe({ optional: true })) ownerId?: number,
     @Query('storeId', new ParseIntPipe({ optional: true })) storeId?: number,
+    @Query('search') search?: string,
   ) {
     const paymentTypeFilter = this.parsePaymentType(paymentType);
 
@@ -61,7 +63,7 @@ export class ContractController {
       page,
       limit,
       isActive,
-      undefined,
+      search,
       paid,
       paymentTypeFilter,
       ownerId,

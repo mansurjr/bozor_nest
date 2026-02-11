@@ -38,6 +38,7 @@ export class AttendanceController {
   @ApiQuery({ name: 'date', required: false, description: 'Specific date (YYYY-MM-DD or DD.MM.YYYY)' })
   @ApiQuery({ name: 'dateFrom', required: false, description: 'ISO date' })
   @ApiQuery({ name: 'dateTo', required: false, description: 'ISO date' })
+  @ApiQuery({ name: 'search', required: false, description: 'Search by stall number or description' })
   findAll(
     @Query('page') page = 1,
     @Query('limit') limit = 10,
@@ -45,12 +46,14 @@ export class AttendanceController {
     @Query('date') date?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
   ) {
     return this.attendanceService.findAll(Number(page), Number(limit), {
       stallId: stallId ? Number(stallId) : undefined,
       date,
       dateFrom,
       dateTo,
+      search,
     });
   }
 

@@ -23,14 +23,43 @@ export class SectionService {
     });
   }
 
-  async findAll() {
-    return this.prisma.section.findMany({
-      include: {
-        assignedChecker: {
-          select: { firstName: true, lastName: true },
+  async findAll(search?: string, page = 1, limit = 10) {
+    const take = Math.max(1, Number(limit) || 10);
+    const currentPage = Math.max(1, Number(page) || 1);
+    const skip = (currentPage - 1) * take;
+
+    const where: any = {};
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.section.findMany({
+        where,
+        skip,
+        take,
+        include: {
+          assignedChecker: {
+            select: { firstName: true, lastName: true },
+          },
         },
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.section.count({ where }),
+    ]);
+
+    return {
+      data,
+      pagination: {
+        total,
+        page: currentPage,
+        limit: take,
+        totalPages: Math.max(1, Math.ceil(total / take) || 1),
       },
-    });
+    };
   }
 
   async findOne(id: number) {

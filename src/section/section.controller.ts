@@ -1,15 +1,14 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe, UseGuards, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, ParseIntPipe, UseGuards, Patch, Query, Res } from '@nestjs/common';
 import { SectionService } from './section.service';
 import { CreateSectionDto } from './dto/create-section.dto';
 import { UpdateSectionDto } from './dto/update-section.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { RolesDecorator } from '../common/decorators/roles';
 import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { RolesGuard } from '../common/guards/guards/role.guard';
 
 import { ExcelService } from '../common/excel/excel.service';
 import type { Response } from 'express';
-import { Res } from '@nestjs/common';
 
 @ApiTags('Sections')
 @ApiBearerAuth()
@@ -34,16 +33,27 @@ export class SectionController {
   @Get()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get all Sections' })
+  @ApiQuery({ name: 'search', required: false, description: 'Search by name or description' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of Sections returned.' })
-  findAll() {
-    return this.sectionService.findAll();
+  findAll(
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.sectionService.findAll(
+      search,
+      page ? +page : undefined,
+      limit ? +limit : undefined,
+    );
   }
 
   @Get('export/excel')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Export sections to Excel' })
   async exportExcel(@Res() res: Response) {
-    const data = await this.sectionService.findAll();
+    const { data } = await this.sectionService.findAll(undefined, 1, 100000);
 
     const flattenedData = data.map(s => ({
       'ID': s.id,

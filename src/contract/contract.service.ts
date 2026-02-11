@@ -254,6 +254,17 @@ export class ContractService {
       where.storeId = storeId;
     }
 
+    if (search) {
+      (where.AND as any[] | undefined) ??= [];
+      (where.AND as any[]).push({
+        OR: [
+          { certificateNumber: { contains: search, mode: 'insensitive' } },
+          { owner: { fullName: { contains: search, mode: 'insensitive' } } },
+          { store: { storeNumber: { contains: search, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
     if (paid !== undefined) {
       const { start, end } = this.getCurrentMonthWindow();
       if (paid) {
