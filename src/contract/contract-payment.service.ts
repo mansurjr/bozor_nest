@@ -66,21 +66,42 @@ export class ContractPaymentPeriodsService {
 
   private async backfillContractPayments(contractId: number) {
     const transactions = await this.prisma.transaction.findMany({
-      where: { contractId, status: 'PAID' },
+      where: { 
+        contractId, 
+        status: 'PAID',
+        NOT: { transactionId: { startsWith: 'INTENT:' } }
+      },
       orderBy: { createdAt: 'asc' },
     });
+    // Clear existing periods linked to this contract to repair any double-counting
+    await this.prisma.contractPaymentPeriod.deleteMany({
+      where: { contractId },
+    });
+
     for (const tx of transactions) {
       await this.recordPaidTransaction(tx.id);
     }
   }
 
   private async ensureContractSeeded(contractId: number) {
-    const hasPeriod = await this.prisma.contractPaymentPeriod.findFirst({
+    // Check if we have any PAID periods
+    const hasPaidPeriod = await this.prisma.contractPaymentPeriod.findFirst({
       where: { contractId, status: ContractPaymentStatus.PAID },
       select: { id: true },
     });
-    if (hasPeriod) return;
-    await this.backfillContractPayments(contractId);
+
+    // One-time repair: Check if there are any periods corrupted by 'INTENT:' placeholders
+    const hasCorrupted = await this.prisma.contractPaymentPeriod.findFirst({
+      where: { 
+        contractId, 
+        transaction: { transactionId: { startsWith: 'INTENT:' } } 
+      },
+      select: { id: true },
+    });
+
+    if (!hasPaidPeriod || hasCorrupted) {
+      await this.backfillContractPayments(contractId);
+    }
   }
 
   private async ensureContractsSeeded(contractIds: number[]) {
@@ -175,6 +196,7 @@ export class ContractPaymentPeriodsService {
     });
     if (!transaction?.contractId || !transaction.contract) return null;
     if (transaction.status !== 'PAID') return null;
+    if (transaction.transactionId.startsWith('INTENT:')) return null;
 
     const existingLink = await this.prisma.contractPaymentPeriod.findFirst({
       where: { transactionId: transaction.id },
