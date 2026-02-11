@@ -12,6 +12,7 @@ export class StatisticsController {
   constructor(private readonly statisticsService: StatisticsService) { }
 
   @Get('daily')
+
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get daily statistics by type (stall, store, or both)' })
   @ApiQuery({ name: 'type', enum: ['stall', 'store'], required: false, description: 'Type of entity. Leave empty to include both' })
@@ -114,6 +115,27 @@ export class StatisticsController {
     @Query('status') status: string = 'PAID',
   ) {
     return this.statisticsService.getSeries({ from, to, groupBy, type, method, status });
+  }
+
+  @Get('by-entity')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get revenue breakdown by stall and store for a specific period' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiQuery({ name: 'month', required: false })
+  @ApiQuery({ name: 'year', required: false })
+  async getRevenueByEntity(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+  ) {
+    return this.statisticsService.getRevenueByEntity({
+      from,
+      to,
+      month: month ? Number(month) : undefined,
+      year: year ? Number(year) : undefined,
+    });
   }
 
   @Get('series/monthly')

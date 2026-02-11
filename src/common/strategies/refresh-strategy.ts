@@ -21,7 +21,6 @@ export class RefreshJwtStrategy extends PassportStrategy(
   ) {
     super({
       jwtFromRequest: (req: Request) => {
-        console.log("REFRESH COOKIES =>", req.cookies);
         return req?.cookies?.refreshToken || null;
       },
       secretOrKey: configService.get<string>("REFRESH_SECRET")!,

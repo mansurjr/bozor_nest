@@ -4,6 +4,14 @@ import { IsIn, IsOptional, IsString, Length, Matches } from 'class-validator';
 
 export class GetContractsDto {
   @ApiPropertyOptional({
+    description: 'General search term (matches store number, owner name, TIN, certificate)',
+    example: 'A-101',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({
     description: 'Store number (identifier of the store)',
     example: 'S001',
   })
@@ -20,6 +28,22 @@ export class GetContractsDto {
   @Matches(/^\d+$/, { message: 'TIN must contain only digits' })
   @Length(6, 15, { message: 'TIN must be between 6 and 15 digits long' })
   tin?: string;
+
+  @ApiPropertyOptional({
+    description: 'Owner name (full or partial match)',
+    example: 'Valijon',
+  })
+  @IsOptional()
+  @IsString()
+  ownerName?: string;
+
+  @ApiPropertyOptional({
+    description: 'Contract certificate number',
+    example: 'C-2024/001',
+  })
+  @IsOptional()
+  @IsString()
+  certificateNumber?: string;
 
   @ApiPropertyOptional({
     description: 'Response shape hint (use "min" for minimal list items)',

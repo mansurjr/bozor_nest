@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ContractPaymentStatus, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -13,6 +13,8 @@ export type ContractPaymentSnapshot = {
   paidThrough: Date | null;
   nextPeriodStart: Date;
   monthsAhead: number;
+  debtMonths: number;
+  debtAmount: number;
   hasCurrentPeriodPaid: boolean;
 };
 
@@ -95,18 +97,34 @@ export class ContractPaymentPeriodsService {
     }
   }
 
-  private buildSnapshotFromPeriod(period: { periodEnd: Date } | null, fallbackNext: Date): ContractPaymentSnapshot {
+  private buildSnapshotFromPeriod(period: { periodEnd: Date } | null, fallbackNext: Date, monthlyFee: number): ContractPaymentSnapshot {
     const now = this.startOfMonth(new Date());
+    const target = this.addMonths(now, 1); // We want to be paid through the end of the current month
     const paidThrough = period?.periodEnd ?? null;
     const nextPeriodStart = period ? this.startOfMonth(period.periodEnd) : this.startOfMonth(fallbackNext);
-    const monthsAhead =
+    
+    // Months ahead of the current month
+    const aheadDiff =
       (nextPeriodStart.getUTCFullYear() - now.getUTCFullYear()) * 12 +
       (nextPeriodStart.getUTCMonth() - now.getUTCMonth());
+    
+    // Months of debt (including current month if not paid)
+    const debtDiff = 
+      (target.getUTCFullYear() - nextPeriodStart.getUTCFullYear()) * 12 +
+      (target.getUTCMonth() - nextPeriodStart.getUTCMonth());
+
+    const monthsAhead = aheadDiff > 0 ? aheadDiff : 0;
+    const debtMonths = debtDiff > 0 ? debtDiff : 0;
+    const debtAmount = debtMonths * monthlyFee;
+    
     const hasCurrentPeriodPaid = !!paidThrough && paidThrough > now;
+    
     return {
       paidThrough,
       nextPeriodStart,
-      monthsAhead: monthsAhead < 0 ? 0 : monthsAhead,
+      monthsAhead,
+      debtMonths,
+      debtAmount,
       hasCurrentPeriodPaid,
     };
   }
@@ -150,7 +168,7 @@ export class ContractPaymentPeriodsService {
     };
   }
 
-  async recordPaidTransaction(transactionId: number) {
+  async recordPaidTransaction(transactionId: number, forcedStart?: Date) {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       include: { contract: true },
@@ -168,22 +186,13 @@ export class ContractPaymentPeriodsService {
     const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
     const months =
       monthlyFee > 0 ? this.clampMonths(Math.floor((amount + 0.0001) / monthlyFee) || 1) : 1;
-    // Determine start: next unpaid month if any; otherwise, allocate ending at current month
-    const latest = await this.prisma.contractPaymentPeriod.findFirst({
-      where: { contractId: contract.id, status: ContractPaymentStatus.PAID },
-      orderBy: { periodEnd: 'desc' },
-      select: { periodStart: true },
-    });
+    
     let start: Date;
-    if (latest) {
-      start = this.addMonths(latest.periodStart, 1);
+    if (forcedStart) {
+      start = this.startOfMonth(forcedStart);
     } else {
-      const nowStart = this.startOfMonth(new Date());
-      // allocate backward to cover backlog up to current month
-      start = this.addMonths(nowStart, 1 - months);
-      // clamp to contract start if necessary
       const floor = this.fallbackStart(contract);
-      if (start < floor) start = floor;
+      start = await this.resolveNextStart(contract.id, floor);
     }
 
     await this.createSequentialPeriods({
@@ -208,18 +217,23 @@ export class ContractPaymentPeriodsService {
     notes?: string;
   }) {
     const { contract, start, months, status, amount, transactionId, createdById, notes } = params;
+    
+    const endRange = this.addMonths(start, months);
+    const existingPeriods = await this.prisma.contractPaymentPeriod.findMany({
+      where: {
+        contractId: contract.id,
+        periodStart: { gte: start, lt: endRange },
+      },
+    });
+
+    const existingMap = new Map(existingPeriods.map(p => [p.periodStart.toISOString(), p]));
+    const toCreate: any[] = [];
+
     for (let i = 0; i < months; i++) {
       const periodStart = this.addMonths(start, i);
       const periodEnd = this.addMonths(periodStart, 1);
+      const existing = existingMap.get(periodStart.toISOString());
 
-      const existing = await this.prisma.contractPaymentPeriod.findUnique({
-        where: {
-          contractId_periodStart: {
-            contractId: contract.id,
-            periodStart,
-          },
-        },
-      });
       if (existing) {
         if (existing.status !== status || existing.transactionId !== transactionId) {
           await this.prisma.contractPaymentPeriod.update({
@@ -232,11 +246,8 @@ export class ContractPaymentPeriodsService {
             },
           });
         }
-        continue;
-      }
-
-      await this.prisma.contractPaymentPeriod.create({
-        data: {
+      } else {
+        toCreate.push({
           contractId: contract.id,
           periodStart,
           periodEnd,
@@ -245,7 +256,13 @@ export class ContractPaymentPeriodsService {
           transactionId,
           createdById,
           notes,
-        },
+        });
+      }
+    }
+
+    if (toCreate.length > 0) {
+      await this.prisma.contractPaymentPeriod.createMany({
+        data: toCreate,
       });
     }
   }
@@ -256,7 +273,8 @@ export class ContractPaymentPeriodsService {
       where: { contractId: contract.id, status: ContractPaymentStatus.PAID },
       orderBy: { periodEnd: 'desc' },
     });
-    return this.buildSnapshotFromPeriod(latest, this.fallbackStart(contract));
+    const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
+    return this.buildSnapshotFromPeriod(latest, this.fallbackStart(contract), monthlyFee);
   }
 
   async getSnapshotsForContracts(contracts: ContractMinimal[]) {
@@ -284,7 +302,8 @@ export class ContractPaymentPeriodsService {
     const snapshotMap = new Map<number, ContractPaymentSnapshot>();
     for (const contract of contracts) {
       const latest = latestMap.get(contract.id) ?? null;
-      snapshotMap.set(contract.id, this.buildSnapshotFromPeriod(latest, this.fallbackStart(contract)));
+      const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
+      snapshotMap.set(contract.id, this.buildSnapshotFromPeriod(latest, this.fallbackStart(contract), monthlyFee));
     }
     return snapshotMap;
   }
@@ -308,28 +327,27 @@ export class ContractPaymentPeriodsService {
 
     const fee = Number(contract.shopMonthlyFee?.toString() ?? 0);
     if (!fee || !(fee > 0)) {
-      throw new Error('Contract monthly fee is not configured');
+      throw new ConflictException('Contract monthly fee is not configured');
     }
 
     let months = dto.months ? this.clampMonths(dto.months) : undefined;
     if (dto.amount !== undefined && dto.amount !== null) {
       const amountNum = Number(dto.amount);
       if (!Number.isFinite(amountNum) || amountNum <= 0) {
-        throw new Error('Invalid amount');
+        throw new BadRequestException('Invalid amount');
       }
       const quotient = amountNum / fee;
       if (Math.abs(Math.round(quotient) - quotient) > 1e-9) {
-        throw new Error('Amount must be an exact multiple of the monthly fee');
+        throw new BadRequestException('Amount must be an exact multiple of the monthly fee');
       }
       if (!months) months = this.clampMonths(Math.round(quotient));
     }
     if (!months) months = 1;
 
-    // Determine period start
     let start: Date;
     if (dto.startMonth) {
       const m = /^([0-9]{4})-([0-9]{2})$/.exec(dto.startMonth.trim());
-      if (!m) throw new Error('startMonth must be in YYYY-MM format');
+      if (!m) throw new BadRequestException('startMonth must be in YYYY-MM format');
       const year = Number(m[1]);
       const monthIndex = Number(m[2]) - 1;
       start = new Date(Date.UTC(year, monthIndex, 1));
@@ -338,7 +356,6 @@ export class ContractPaymentPeriodsService {
       start = await this.resolveNextStart(contract.id, fallback);
     }
 
-    // Create a transaction record
     const totalAmount = dto.amount !== undefined && dto.amount !== null ? dto.amount : fee * months;
     const transferDate = dto.transferDate ? new Date(dto.transferDate) : new Date();
     if (Number.isNaN(transferDate.getTime())) {

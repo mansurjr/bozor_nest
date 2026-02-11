@@ -13,6 +13,54 @@ export class TransactionsService {
     private readonly contractPayments: ContractPaymentPeriodsService,
   ) {}
 
+  private parseDate(val: string): Date | null {
+    if (!val) return null;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+      return new Date(val);
+    }
+
+    if (/^\d{2}\.\d{2}\.\d{4}$/.test(val)) {
+      const [d, m, y] = val.split('.').map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    if (/^\d{2}\.\d{2}$/.test(val)) {
+      const parts = val.split('.').map(Number);
+      const now = new Date();
+      const y = now.getFullYear();
+
+      const currentMonth = now.getMonth() + 1;
+      if (parts[0] === currentMonth && parts[1] !== currentMonth) {
+        return new Date(y, parts[0] - 1, parts[1]); // MM.DD
+      }
+      if (parts[1] === currentMonth && parts[0] !== currentMonth) {
+        return new Date(y, parts[1] - 1, parts[0]); // DD.MM
+      }
+
+      return new Date(y, parts[1] - 1, parts[0]);
+    }
+
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  private toUzbekistanStartOfDay(val: string): Date | null {
+    const d = this.parseDate(val);
+    if (!d) return null;
+    const start = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0));
+    start.setUTCHours(start.getUTCHours() - 5);
+    return start;
+  }
+
+  private toUzbekistanEndOfDay(val: string): Date | null {
+    const d = this.parseDate(val);
+    if (!d) return null;
+    const end = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999));
+    end.setUTCHours(end.getUTCHours() - 5);
+    return end;
+  }
+
   async create(dto: CreateTransactionDto) {
     const created = await this.prisma.transaction.create({ data: dto });
     if (created.contractId && created.status === 'PAID') {
@@ -53,12 +101,11 @@ export class TransactionsService {
     const where: Prisma.TransactionWhereInput = {};
     if (search) {
       const numeric = Number(search);
-      const includesNumber = !Number.isNaN(numeric);
+      const includesNumber = !Number.isNaN(numeric); 
       const normalizedSearch = search.trim().toUpperCase();
       const paymentMatches: ('CASH' | 'CLICK' | 'PAYME')[] = ['CASH', 'CLICK', 'PAYME'];
       const or: Prisma.TransactionWhereInput[] = [
         { transactionId: { contains: search, mode: 'insensitive' } },
-        { status: { contains: search, mode: 'insensitive' } },
         {
           contract: {
             owner: {
@@ -71,6 +118,11 @@ export class TransactionsService {
             store: {
               storeNumber: { contains: search, mode: 'insensitive' },
             },
+          },
+        },
+        {
+          contract: {
+            certificateNumber: { contains: search, mode: 'insensitive' },
           },
         },
         {
@@ -115,37 +167,35 @@ export class TransactionsService {
     if (dateFrom || dateTo) {
       where.createdAt = {};
       if (dateFrom) {
-        where.createdAt.gte = new Date(dateFrom);
+        const start = this.toUzbekistanStartOfDay(dateFrom);
+        if (start) where.createdAt.gte = start;
       }
       if (dateTo) {
-        const end = new Date(dateTo);
-        end.setHours(23, 59, 59, 999);
-        where.createdAt.lte = end;
+        const end = this.toUzbekistanEndOfDay(dateTo);
+        if (end) where.createdAt.lte = end;
       }
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.transaction.findMany({
-        where,
-        skip,
-        take: take,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          contract: {
-            include: {
-              owner: true,
-              store: true,
-            },
-          },
-          attendance: {
-            include: {
-              Stall: true,
-            },
+    const total = await this.prisma.transaction.count({ where });
+    const data = await this.prisma.transaction.findMany({
+      where,
+      skip,
+      take: take,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        contract: {
+          include: {
+            owner: true,
+            store: true,
           },
         },
-      }),
-      this.prisma.transaction.count({ where }),
-    ]);
+        attendance: {
+          include: {
+            Stall: true,
+          },
+        },
+      },
+    });
 
     return {
       data,

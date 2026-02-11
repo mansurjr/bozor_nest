@@ -6,12 +6,18 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiBearerAuth } 
 import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { RolesGuard } from '../common/guards/guards/role.guard';
 import { RolesDecorator } from '../common/decorators/roles';
+import { ExcelService } from '../common/excel/excel.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
 
 @ApiTags('Sale Types')
 @ApiBearerAuth()
 @Controller('sale-types')
 export class SaleTypeController {
-  constructor(private readonly saleTypeService: SaleTypeService) { }
+  constructor(
+    private readonly saleTypeService: SaleTypeService,
+    private readonly excelService: ExcelService
+  ) { }
 
   @Post()
   @RolesDecorator('ADMIN', "SUPERADMIN")
@@ -38,6 +44,30 @@ export class SaleTypeController {
       page ? +page : undefined,
       limit ? +limit : undefined,
     );
+  }
+
+  @Get('export/excel')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Export sale types to Excel' })
+  async exportExcel(@Res() res: Response) {
+    const { data } = await this.saleTypeService.findAll(undefined, 1, 100000);
+
+    const flattenedData = data.map(s => ({
+      'ID': s.id,
+      'Name': s.name,
+      'Tax Rate': s.tax,
+      'Description': s.description || '',
+    }));
+
+    const buffer = this.excelService.generateExcel(flattenedData, 'SaleTypes');
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="sale-types.xlsx"',
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
   }
 
   @Get(':id')

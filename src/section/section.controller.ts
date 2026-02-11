@@ -7,11 +7,18 @@ import { RolesDecorator } from '../common/decorators/roles';
 import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { RolesGuard } from '../common/guards/guards/role.guard';
 
+import { ExcelService } from '../common/excel/excel.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
+
 @ApiTags('Sections')
 @ApiBearerAuth()
 @Controller('sections')
 export class SectionController {
-  constructor(private readonly sectionService: SectionService) { }
+  constructor(
+    private readonly sectionService: SectionService,
+    private readonly excelService: ExcelService
+  ) { }
 
   @Post()
   @RolesDecorator('ADMIN', "SUPERADMIN")
@@ -30,6 +37,30 @@ export class SectionController {
   @ApiResponse({ status: 200, description: 'List of Sections returned.' })
   findAll() {
     return this.sectionService.findAll();
+  }
+
+  @Get('export/excel')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Export sections to Excel' })
+  async exportExcel(@Res() res: Response) {
+    const data = await this.sectionService.findAll();
+
+    const flattenedData = data.map(s => ({
+      'ID': s.id,
+      'Name': s.name,
+      'Description': s.description || '',
+      'Assigned Checker': s.assignedChecker?.firstName || '',
+    }));
+
+    const buffer = this.excelService.generateExcel(flattenedData, 'Sections');
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="sections.xlsx"',
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
   }
 
   @Get(':id')

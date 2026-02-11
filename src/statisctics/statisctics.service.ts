@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns';
+import dayjs from 'dayjs';
 import { Transaction, Attendance } from '@prisma/client';
 
 type EntityType = 'stall' | 'store';
@@ -111,11 +112,8 @@ export class StatisticsService {
 
 
   private toTashkentDate(value: Date | string | number) {
-    const d = new Date(value);
-    if (!Number.isFinite(d.getTime())) return null;
-    // Shift to Tashkent by aligning to +05:00 in ISO string
-    const iso = d.toISOString();
-    return new Date(iso.replace('Z', '+05:00'));
+    if (!value) return null;
+    return dayjs(value).format('YYYY-MM-DD');
   }
 
   private async collectStorePayments(from: Date, to: Date, method?: PaymentMethod) {
@@ -277,6 +275,57 @@ export class StatisticsService {
     return { labels, series };
   }
 
+  async getRevenueByEntity(params: { from?: string; to?: string; month?: number; year?: number }) {
+    const { start, end } = this.getReconciliationRange(params);
+
+    const [stallAttendances, storeTransactions] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where: {
+          date: { gte: this.toUtcDate(start), lte: this.toUtcDate(end) },
+          status: 'PAID',
+        },
+        include: {
+          Stall: true,
+        },
+      }),
+      this.prisma.transaction.findMany({
+        where: {
+          contractId: { not: null },
+          createdAt: { gte: start, lte: end },
+          status: 'PAID',
+        },
+        include: {
+          contract: {
+            include: {
+              store: { include: { Section: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const stallRevenueMap = new Map<string, number>();
+    stallAttendances.forEach((a) => {
+      const key = a.Stall?.stallNumber || `Rasta #${a.stallId}`;
+      stallRevenueMap.set(key, (stallRevenueMap.get(key) || 0) + this.decimalToNumber(a.amount));
+    });
+
+    const storeRevenueMap = new Map<string, number>();
+    storeTransactions.forEach((t) => {
+      const key = t.contract?.store?.storeNumber || `Do'kon #${t.contract?.storeId}`;
+      storeRevenueMap.set(key, (storeRevenueMap.get(key) || 0) + this.decimalToNumber(t.amount));
+    });
+
+    return {
+      stalls: Array.from(stallRevenueMap.entries())
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value),
+      stores: Array.from(storeRevenueMap.entries())
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value),
+    };
+  }
+
   async getTotals(params: { from?: string; to?: string; type?: 'stall' | 'store' | 'all'; method?: 'PAYME' | 'CLICK' | 'CASH'; status?: string; }) {
     const { from, to } = this.normalizeRange(params.from, params.to);
     const type = params.type === 'stall' || params.type === 'store' ? params.type : 'all';
@@ -312,7 +361,7 @@ export class StatisticsService {
     const buckets: Date[] = [];
     const cursor = new Date(from);
     const end = new Date(to);
-    const fmt = (d: Date) => d.toISOString();
+    const fmt = (d: Date) => dayjs(d).format('YYYY-MM-DD');
     if (groupBy === 'monthly') {
       let c = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
       while (c <= end) {
@@ -421,8 +470,8 @@ export class StatisticsService {
     const paged = rows.slice(skip, skip + take);
 
     return {
-      from: start,
-      to: end,
+      from: dayjs(start).format('YYYY-MM-DD'),
+      to: dayjs(end).format('YYYY-MM-DD'),
       timeZone: 'Asia/Tashkent',
       count: total,
       rows: paged,
@@ -479,8 +528,8 @@ export class StatisticsService {
     const { start, end } = this.getReconciliationRange(params);
     const rows = await this.buildReconciliationLedgerRows({ ...params, start, end });
     return {
-      from: start,
-      to: end,
+      from: dayjs(start).format('YYYY-MM-DD'),
+      to: dayjs(end).format('YYYY-MM-DD'),
       timeZone: 'Asia/Tashkent',
       count: rows.length,
       rows,
@@ -656,13 +705,13 @@ export class StatisticsService {
         paidCount: paidTx.length,
         pendingCount: contract.transactions.filter((t) => t.status === 'PENDING').length,
         failedCount: contract.transactions.filter((t) => t.status === 'FAILED' || t.status === 'CANCELLED').length,
-        lastPaymentAt: lastPayment?.createdAt || null,
+        lastPaymentAt: lastPayment?.createdAt ? dayjs(lastPayment.createdAt).format('YYYY-MM-DD') : null,
         lastPaymentMethod: lastPayment?.paymentMethod || null,
         methods: methodCounts,
       };
     });
 
-    return { from: start, to: end, timeZone: 'Asia/Tashkent', summary };
+    return { from: dayjs(start).format('YYYY-MM-DD'), to: dayjs(end).format('YYYY-MM-DD'), timeZone: 'Asia/Tashkent', summary };
   }
 
   async getReconciliationMonthlyRollup(params: {
@@ -764,7 +813,7 @@ export class StatisticsService {
           transactionId: link.transactionId,
           amount,
           periodStart,
-          lastPaymentAt: link.transaction?.createdAt || null,
+          lastPaymentAt: link.transaction?.createdAt ? dayjs(link.transaction.createdAt).format('YYYY-MM-DD') : null,
           lastPaymentMethod: (link.transaction?.paymentMethod as any) || null,
         });
         paidAmount += amount;

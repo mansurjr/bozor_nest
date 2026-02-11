@@ -1,11 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
 import { Prisma, ContractPaymentStatus, ContractPaymentType } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
 import * as base64 from "base-64";
-import { ContractPaymentPeriodsService } from "./contract-payment.service";
+import { ContractPaymentPeriodsService, ContractPaymentSnapshot } from "./contract-payment.service";
 
 
 @Injectable()
@@ -200,8 +200,8 @@ export class ContractService {
     const newEnd = expiryDate ? new Date(expiryDate) : null;
 
     for (const c of existing) {
-      if (this.isOverlap(c.issueDate, c.expiryDate, newStart, newEnd)) {
-        throw new Error("Store is already occupied for the selected period");
+      if (this.isOverlap(c.issueDate, c.expiryDate, newStart, newEnd  ) && c.isActive) {
+        throw new ConflictException("Store is already occupied for the selected period");
       }
     }
   }
@@ -231,7 +231,7 @@ export class ContractService {
         createdById,
         paymentType: dto.paymentType ?? ContractPaymentType.ONLINE,
         issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
-        expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
+        expiryDate: dto.expiryDate === null ? null : dto.expiryDate ? new Date(dto.expiryDate) : undefined,
         shopMonthlyFee: dto.shopMonthlyFee ?? undefined,
       },
       include: {
@@ -262,8 +262,11 @@ export class ContractService {
     limit = 10,
     isActive?: boolean,
     search?: string,
-    paid?: string,
+    paid?: boolean,
     paymentType?: ContractPaymentType,
+    ownerId?: number,
+    storeId?: number,
+    skipEnrichment = false,
   ) {
     const where: any = {};
 
@@ -275,14 +278,17 @@ export class ContractService {
       where.paymentType = paymentType;
     }
 
-    // Apply paid/unpaid filter for current month if requested
-    const paidFilter = (paid ?? '').toString().toLowerCase();
-    const paidTrue = paidFilter === 'true' || paidFilter === 'paid' || paidFilter === '1';
-    const paidFalse = paidFilter === 'false' || paidFilter === 'unpaid' || paidFilter === '0';
+    if (ownerId) {
+      where.ownerId = ownerId;
+    }
 
-    if (paidTrue || paidFalse) {
+    if (storeId) {
+      where.storeId = storeId;
+    }
+
+    if (paid !== undefined) {
       const { start, end } = this.getCurrentMonthWindow();
-      if (paidTrue) {
+      if (paid) {
         (where.AND as any[] | undefined) ??= [];
         (where.AND as any[]).push({
           OR: [
@@ -290,7 +296,7 @@ export class ContractService {
             { transactions: { some: { status: 'PAID', createdAt: { gte: start, lt: end } } } },
           ],
         });
-      } else if (paidFalse) {
+      } else {
         (where.AND as any[] | undefined) ??= [];
         (where.AND as any[]).push(
           { paymentPeriods: { none: { status: ContractPaymentStatus.PAID, periodStart: start } } },
@@ -302,26 +308,31 @@ export class ContractService {
     const total = await this.prisma.contract.count({ where });
     const data = await this.prisma.contract.findMany({
       where,
-      include: { owner: true, store: true, createdBy: true, transactions: true },
+      include: { owner: true, store: true, createdBy: true, archivedBy: true, transactions: true },
       orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
+      ...(limit !== undefined ? { skip: (page - 1) * limit, take: limit } : {}),
     });
 
-    const enriched = await Promise.all(
-      data.map((contract) => this.ensureStorePaymentLinks(contract)),
-    );
+    let enriched = data;
+    if (!skipEnrichment) {
+      enriched = [];
+      for (const contract of data) {
+        enriched.push(await this.ensureStorePaymentLinks(contract));
+      }
 
-    const snapshots = await this.contractPayments.getSnapshotsForContracts(
-      data.map((c) => ({
-        id: c.id,
-        issueDate: c.issueDate,
-        createdAt: c.createdAt,
-        shopMonthlyFee: c.shopMonthlyFee,
-      })) as any,
-    );
-    for (const contract of enriched) {
-      (contract as any).paymentSnapshot = snapshots.get(contract.id) ?? null;
+      const snapshots = await this.contractPayments.getSnapshotsForContracts(
+        data.map((c) => ({
+          id: c.id,
+          issueDate: c.issueDate,
+          createdAt: c.createdAt,
+          shopMonthlyFee: c.shopMonthlyFee,
+        })) as any,
+      );
+      for (const contract of enriched) {
+        const snapshot = snapshots.get(contract.id) ?? null;
+        (contract as any).paymentSnapshot = snapshot;
+        (contract as any).isPaidCurrentMonth = snapshot?.hasCurrentPeriodPaid ?? false;
+      }
     }
 
     const totalPages =
@@ -348,6 +359,7 @@ export class ContractService {
         owner: true,
         store: true,
         createdBy: true,
+        archivedBy: true,
         transactions: true,
       },
     });
@@ -361,6 +373,7 @@ export class ContractService {
       shopMonthlyFee: enriched.shopMonthlyFee,
     } as any);
     (enriched as any).paymentSnapshot = snapshot;
+    (enriched as any).isPaidCurrentMonth = snapshot?.hasCurrentPeriodPaid ?? false;
     return enriched;
   }
 
@@ -419,7 +432,56 @@ export class ContractService {
     return this.findOne(id);
   }
 
-  async update(id: number, dto: UpdateContractDto) {
+  async getPaymentUrls(id: number, months?: number, startMonth?: string, method: 'CLICK' | 'PAYME' = 'CLICK') {
+    const contract = await this.prisma.contract.findUnique({
+      where: { id },
+      include: { store: true },
+    });
+    if (!contract) throw new NotFoundException(`Contract with id ${id} not found`);
+
+    const snapshot = await this.contractPayments.getSnapshotForContract({
+      id: contract.id,
+      issueDate: contract.issueDate,
+      createdAt: contract.createdAt,
+      shopMonthlyFee: contract.shopMonthlyFee,
+    } as any);
+
+    const count = months || snapshot.debtMonths || 1;
+    const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
+    const totalAmount = monthlyFee * count;
+    
+    // Store the intent in transactionId since we don't have a metadata field
+    // Format: INTENT:id:months:startMonth:timestamp
+    const startPart = startMonth || snapshot.nextPeriodStart.toISOString().substring(0, 7);
+    const intent = `INTENT:${contract.id}:${count}:${startPart}:${Date.now()}`;
+
+    // Create a pending transaction to track this specific payment intent
+    const pendingTx = await this.prisma.transaction.create({
+      data: {
+        transactionId: intent,
+        amount: totalAmount as any,
+        status: 'PENDING',
+        paymentMethod: method,
+        contract: { connect: { id: contract.id } },
+      },
+    });
+
+    const merchantTransId = `TX_${pendingTx.id}`;
+    const url = method === 'PAYME' 
+      ? this.buildPaymePaymentUrl(totalAmount.toString(), merchantTransId)
+      : this.buildClickPaymentUrl(totalAmount.toString(), merchantTransId);
+
+    return {
+      transactionReference: merchantTransId,
+      months: count,
+      amount: totalAmount,
+      startMonth: startPart,
+      method,
+      url,
+    };
+  }
+
+  async update(id: number, dto: UpdateContractDto, userId?: number) {
     const contract = await this.findOne(id);
 
     if (await this.hasPaidThisMonth(contract.id)) {
@@ -430,9 +492,22 @@ export class ContractService {
 
     const data: any = { ...dto };
     if (dto.issueDate) data.issueDate = new Date(dto.issueDate);
-    if (dto.expiryDate) data.expiryDate = new Date(dto.expiryDate);
+    if (dto.expiryDate === null) {
+      data.expiryDate = null;
+    } else if (dto.expiryDate) {
+      data.expiryDate = new Date(dto.expiryDate);
+    }
     if (dto.shopMonthlyFee !== undefined) data.shopMonthlyFee = dto.shopMonthlyFee as any;
     if (dto.paymentType !== undefined) data.paymentType = dto.paymentType;
+    
+    // Archive tracking
+    if (dto.isActive === false && contract.isActive === true) {
+      data.archivedById = userId;
+      data.archivedAt = new Date();
+    } else if (dto.isActive === true && contract.isActive === false) {
+      data.archivedById = null;
+      data.archivedAt = null;
+    }
 
     if (dto.ownerId !== undefined) {
       const owner = await this.prisma.owner.findUnique({
@@ -509,11 +584,15 @@ export class ContractService {
     return this.ensureStorePaymentLinks(updated);
   }
 
-  async remove(id: number) {
+  async remove(id: number, userId?: number) {
     await this.findOne(id);
     return this.prisma.contract.update({
       where: { id },
-      data: { isActive: false },
+      data: { 
+        isActive: false,
+        archivedById: userId,
+        archivedAt: new Date(),
+      },
     });
   }
 }

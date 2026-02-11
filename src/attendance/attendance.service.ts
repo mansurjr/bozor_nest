@@ -10,9 +10,52 @@ import * as base64 from 'base-64';
 export class AttendanceService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) { }
 
+  private parseDate(val: string): Date | null {
+    if (!val) return null;
+
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+      return new Date(val);
+    }
+
+    // DD.MM.YYYY
+    if (/^\d{2}\.\d{2}\.\d{4}$/.test(val)) {
+      const [d, m, y] = val.split('.').map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    // DD.MM or MM.DD (Try to match current date for ambiguity)
+    if (/^\d{2}\.\d{2}$/.test(val)) {
+      const parts = val.split('.').map(Number);
+      const now = new Date();
+      const y = now.getFullYear();
+
+      // If one part matches current month, prioritize that as the month
+      const currentMonth = now.getMonth() + 1;
+      if (parts[0] === currentMonth && parts[1] !== currentMonth) {
+        return new Date(y, parts[0] - 1, parts[1]); // MM.DD
+      }
+      if (parts[1] === currentMonth && parts[0] !== currentMonth) {
+        return new Date(y, parts[1] - 1, parts[0]); // DD.MM
+      }
+
+      // Default to DD.MM for Uzbekistan/EU standard
+      return new Date(y, parts[1] - 1, parts[0]);
+    }
+
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   private normalizeDateOnly(dateInput: string | Date) {
-    const parsed = dateInput instanceof Date ? new Date(dateInput) : new Date(dateInput);
-    if (Number.isNaN(parsed.getTime())) {
+    let parsed: Date | null;
+    if (dateInput instanceof Date) {
+      parsed = dateInput;
+    } else {
+      parsed = this.parseDate(dateInput);
+    }
+
+    if (!parsed || Number.isNaN(parsed.getTime())) {
       throw new BadRequestException('Invalid attendance date');
     }
     return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
@@ -94,14 +137,27 @@ export class AttendanceService {
   async findAll(
     page = 1,
     limit = 10,
-    filters?: { stallId?: number; dateFrom?: string; dateTo?: string },
+    filters?: { stallId?: number; date?: string; dateFrom?: string; dateTo?: string },
   ) {
     const where: any = {};
     if (filters?.stallId) where.stallId = filters.stallId;
-    if (filters?.dateFrom || filters?.dateTo) {
+    if (filters?.date || filters?.dateFrom || filters?.dateTo) {
       where.date = {};
-      if (filters.dateFrom) where.date.gte = new Date(filters.dateFrom);
-      if (filters.dateTo) where.date.lte = new Date(filters.dateTo);
+      const startInput = filters.date || filters.dateFrom;
+      const endInput = filters.date || filters.dateTo;
+
+      if (startInput) {
+        const start = this.parseDate(startInput);
+        if (start) {
+          where.date.gte = new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()));
+        }
+      }
+      if (endInput) {
+        const end = this.parseDate(endInput);
+        if (end) {
+          where.date.lte = new Date(Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()));
+        }
+      }
     }
 
     const total = await this.prisma.attendance.count({ where });

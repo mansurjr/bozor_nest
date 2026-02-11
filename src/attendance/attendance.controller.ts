@@ -7,11 +7,18 @@ import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { RolesGuard } from '../common/guards/guards/role.guard';
 import { RolesDecorator } from '../common/decorators/roles';
 
+import { ExcelService } from '../common/excel/excel.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
+
 @ApiTags('Attendances')
 @ApiBearerAuth()
 @Controller('attendances')
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) { }
+  constructor(
+    private readonly attendanceService: AttendanceService,
+    private readonly excelService: ExcelService
+  ) { }
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -28,20 +35,64 @@ export class AttendanceController {
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'stallId', required: false })
+  @ApiQuery({ name: 'date', required: false, description: 'Specific date (YYYY-MM-DD or DD.MM.YYYY)' })
   @ApiQuery({ name: 'dateFrom', required: false, description: 'ISO date' })
   @ApiQuery({ name: 'dateTo', required: false, description: 'ISO date' })
   findAll(
     @Query('page') page = 1,
     @Query('limit') limit = 10,
     @Query('stallId') stallId?: string,
+    @Query('date') date?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
   ) {
     return this.attendanceService.findAll(Number(page), Number(limit), {
       stallId: stallId ? Number(stallId) : undefined,
+      date,
       dateFrom,
       dateTo,
     });
+  }
+
+  @Get('export/excel')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Export attendances to Excel' })
+  @ApiQuery({ name: 'stallId', required: false })
+  @ApiQuery({ name: 'date', required: false })
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'dateTo', required: false })
+  async exportExcel(
+    @Res() res: Response,
+    @Query('stallId') stallId?: string,
+    @Query('date') date?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    const { data } = await this.attendanceService.findAll(1, 100000, {
+      stallId: stallId ? Number(stallId) : undefined,
+      date,
+      dateFrom,
+      dateTo,
+    });
+
+    const flattenedData = data.map(a => ({
+      'ID': a.id,
+      'Date': a.date,
+      'Stall #': a.Stall?.stallNumber || '',
+      'Status': a.status,
+      'Amount': Number(a.amount || 0),
+      'Created At': a.createdAt,
+    }));
+
+    const buffer = this.excelService.generateExcel(flattenedData, 'Attendances');
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="attendances.xlsx"',
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
   }
 
   @Get(':id/history')

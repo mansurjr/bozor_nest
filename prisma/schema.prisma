@@ -21,8 +21,10 @@ model User {
   refreshToken     String?
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
-  createdContracts Contract[]
-  createdOwners    Owner[]
+  createdContracts Contract[] @relation("ContractCreator")
+  archivedContracts Contract[] @relation("ContractArchiver")
+  createdOwners    Owner[]    @relation("OwnerCreator")
+  archivedOwners    Owner[]    @relation("OwnerArchiver")
   Section          Section[]
   contractPayments ContractPaymentPeriod[]
 }
@@ -38,8 +40,11 @@ model Owner {
   isActive    Boolean    @default(true)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
-  createdById Int
-  createdBy   User       @relation(fields: [createdById], references: [id])
+  createdById  Int
+  archivedById Int?
+  archivedAt   DateTime?
+  createdBy   User       @relation("OwnerCreator", fields: [createdById], references: [id])
+  archivedBy   User?      @relation("OwnerArchiver", fields: [archivedById], references: [id])
   contracts   Contract[]
 }
 
@@ -90,8 +95,11 @@ model Contract {
   createdById       Int
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  createdBy         User          @relation(fields: [createdById], references: [id])
-  owner             Owner         @relation(fields: [ownerId], references: [id])
+  archivedById      Int?
+  archivedAt        DateTime?
+  createdBy         User?          @relation("ContractCreator", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: Cascade)
+  archivedBy        User?          @relation("ContractArchiver", fields: [archivedById], references: [id], onDelete: NoAction, onUpdate: Cascade)
+  owner             Owner         @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   store             Store         @relation(fields: [storeId], references: [id])
   transactions      Transaction[]
   paymentPeriods    ContractPaymentPeriod[]
@@ -155,6 +163,9 @@ model Transaction {
   cancelTime  DateTime?
   reason      Int?
   state       Int?
+  fiscalErrorCode Int?
+  fiscalErrorNote String?
+  fiscalQrCode   String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
@@ -194,8 +205,8 @@ model Section {
   id                Int     @id @default(autoincrement())
   name              String
   description       String?
-  assignedCheckerId Int
-  assignedChecker   User    @relation(fields: [assignedCheckerId], references: [id])
+  assignedCheckerId Int?
+  assignedChecker   User?    @relation(fields: [assignedCheckerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   Stall             Stall[]
   Store             Store[]
 }

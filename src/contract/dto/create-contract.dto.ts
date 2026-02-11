@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsDateString, IsBoolean, IsNumber, IsEnum } from 'class-validator';
+import { IsInt, IsOptional, IsDateString, IsBoolean, IsNumber, IsEnum, ValidateIf } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ContractPaymentType } from '@prisma/client';
 

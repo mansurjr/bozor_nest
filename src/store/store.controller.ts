@@ -7,11 +7,18 @@ import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { RolesGuard } from '../common/guards/guards/role.guard';
 import { RolesDecorator } from '../common/decorators/roles';
 
+import { ExcelService } from '../common/excel/excel.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
+
 @ApiTags('Stores')
 @ApiBearerAuth()
 @Controller('stores')
 export class StoresController {
-  constructor(private readonly storesService: StoresService) { }
+  constructor(
+    private readonly storesService: StoresService,
+    private readonly excelService: ExcelService
+  ) { }
 
   @Post()
   @RolesDecorator('ADMIN', 'SUPERADMIN')
@@ -45,6 +52,45 @@ export class StoresController {
       withContracts: withContracts === 'true',
       asOf,
     });
+  }
+
+  @Get('export/excel')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Export stores to Excel' })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'onlyFree', required: false })
+  @ApiQuery({ name: 'asOf', required: false })
+  async exportExcel(
+    @Res() res: Response,
+    @Query('search') search?: string,
+    @Query('onlyFree') onlyFree?: string,
+    @Query('asOf') asOf?: string,
+  ) {
+    const { data } = await this.storesService.findAll(search, 1, 100000, {
+      onlyFree: onlyFree === 'true',
+      withContracts: true,
+      asOf,
+    });
+
+    const flattenedData = data.map(s => ({
+      'ID': s.id,
+      'Store #': s.storeNumber || '',
+      'Area': s.area,
+      'Section': s.Section?.name || '',
+      'Description': s.description || '',
+      'Status': s.occupied ? 'Occupied' : 'Free',
+      'Current Occupant': s.contracts?.find(c => c.isActive)?.owner?.fullName || '',
+    }));
+
+    const buffer = this.excelService.generateExcel(flattenedData, 'Stores');
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="stores.xlsx"',
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
   }
 
   @Get(':id')

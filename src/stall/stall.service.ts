@@ -29,6 +29,9 @@ export class StallService {
       });
       if (!section) throw new NotFoundException(`Section with id ${dto.sectionId} not found`);
     }
+    if (dto.stallNumber) {
+      await this.checkStallNumber(dto.stallNumber);
+    }
 
     const newStall = await this.prisma.stall.create({
       data: { ...dto, dailyFee },
@@ -60,22 +63,42 @@ export class StallService {
     if (search) {
       where.OR = [
         { description: { contains: search, mode: 'insensitive' } },
+        { stallNumber: { contains: search, mode: 'insensitive' } },
       ];
     }
 
+    const now = new Date();
+    // Match the UTC 00:00 format used in AttendanceService.normalizeDateOnly
+    const todayDate = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+
     const total = await this.prisma.stall.count({ where });
     const data = await this.prisma.stall.findMany({
+      orderBy: { id: 'desc' },
       where,
-      include: { SaleType: true, Section: true },
+      include: {
+        SaleType: true,
+        Section: true,
+        attendances: {
+          where: {
+            date: todayDate,
+          },
+          take: 1,
+        },
+      },
       skip: (page - 1) * limit,
       take: limit,
     });
+
+    const enriched = data.map((stall) => ({
+      ...stall,
+      reserved: stall.attendances.length > 0,
+    }));
 
     const totalPages =
       limit && limit > 0 ? Math.ceil(total / limit) : total > 0 ? 1 : 0;
 
     return {
-      data,
+      data: enriched,
       pagination: {
         total,
         page,
@@ -134,6 +157,10 @@ export class StallService {
         where: { id: dto.sectionId },
       });
       if (!section) throw new NotFoundException(`Section with id ${dto.sectionId} not found`);
+    }
+
+    if (dto.stallNumber) {
+      await this.checkStallNumber(dto.stallNumber, id);
     }
 
     return this.prisma.stall.update({
@@ -199,9 +226,12 @@ export class StallService {
     };
   }
 
-  async checkStallNumber(stallNumber: string) {
-    const exists = await this.prisma.stall.findUnique({
-      where: { stallNumber },
+  async checkStallNumber(stallNumber: string, excludeId?: number) {
+    const exists = await this.prisma.stall.findFirst({
+      where: {
+        stallNumber,
+        id: excludeId ? { not: excludeId } : undefined,
+      },
       select: { id: true },
     });
 

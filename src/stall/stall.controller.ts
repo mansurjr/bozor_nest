@@ -7,11 +7,18 @@ import { JwtAuthGuard } from '../common/guards/guards/accessToken.guard';
 import { RolesGuard } from '../common/guards/guards/role.guard';
 import { RolesDecorator } from '../common/decorators/roles';
 
+import { ExcelService } from '../common/excel/excel.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
+
 @ApiTags('Stalls')
 @ApiBearerAuth()
 @Controller('stalls')
 export class StallController {
-  constructor(private readonly stallService: StallService) { }
+  constructor(
+    private readonly stallService: StallService,
+    private readonly excelService: ExcelService
+  ) { }
 
   @Post()
   @RolesDecorator('ADMIN', 'SUPERADMIN')
@@ -36,6 +43,38 @@ export class StallController {
     return this.stallService.findAll(search, Number(page), Number(limit));
   }
 
+  @Get('export/excel')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Export stalls to Excel' })
+  @ApiQuery({ name: 'search', required: false })
+  async exportExcel(
+    @Res() res: Response,
+    @Query('search') search?: string,
+  ) {
+    const { data } = await this.stallService.findAll(search, 1, 100000);
+
+    const flattenedData = data.map(s => ({
+      'ID': s.id,
+      'Stall #': s.stallNumber || '',
+      'Area': s.area,
+      'Daily Fee': Number(s.dailyFee),
+      'Sale Type': s.SaleType?.name || '',
+      'Section': s.Section?.name || '',
+      'Description': s.description || '',
+      'Status': s.reserved ? 'Reserved/Paid' : 'Free',
+    }));
+
+    const buffer = this.excelService.generateExcel(flattenedData, 'Stalls');
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="stalls.xlsx"',
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
+  }
+
   @Get('check-number/:stallNumber')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Check if a stall number is valid or already exists' })
@@ -45,6 +84,7 @@ export class StallController {
     description: 'The stall number to check',
     example: 'A-105',
   })
+  @ApiQuery({ name: 'excludeId', required: false, type: Number, description: 'ID of the stall to exclude from the check (useful for updates)' })
   @ApiResponse({
     status: 200,
     description: 'Stall number is available',
@@ -63,8 +103,11 @@ export class StallController {
       },
     },
   })
-  checkStallNumber(@Param('stallNumber') stallNumber: string) {
-    return this.stallService.checkStallNumber(stallNumber);
+  checkStallNumber(
+    @Param('stallNumber') stallNumber: string,
+    @Query('excludeId') excludeId?: string
+  ) {
+    return this.stallService.checkStallNumber(stallNumber, excludeId ? Number(excludeId) : undefined);
   }
   
   @Get(':id')

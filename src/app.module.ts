@@ -16,9 +16,11 @@ import { ClickWebhookModule } from "./click_webhook/click_webhook.module";
 import { StatiscticsModule } from "./statisctics/statisctics.module";
 import { PublicModule } from './public/public.module';
 import { PaymeModule } from './payme/payme.module';
+import { ExcelModule } from './common/excel/excel.module';
 
 @Module({
   imports: [
+    ExcelModule,
     ConfigModule.forRoot({
       envFilePath: ".env",
       isGlobal: true,

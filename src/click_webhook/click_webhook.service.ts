@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { ContractPaymentPeriodsService } from '../contract/contract-payment.service';
+import axios from 'axios';
 
 @Injectable()
 export class ClickWebhookService {
@@ -102,25 +103,34 @@ export class ClickWebhookService {
       }
 
       let transaction: any;
+      let store: any;
+      let attendance: any;
       let isDaily = false;
 
+      if (merchant_trans_id.startsWith('TX_')) {
+        const txId = Number(merchant_trans_id.split('_')[1]);
+        transaction = await this.prisma.transaction.findUnique({
+          where: { id: txId },
+          include: { contract: { include: { store: true } } },
+        });
+        if (transaction && transaction.status === 'PENDING') {
+          // Use the stored transaction
+          this.logger.log(`[PREPARE] Found pending transaction ${transaction.id} for intent ${transaction.transactionId}`);
+        } else {
+          return { click_trans_id, merchant_trans_id, error: -6, error_note: 'Transaction not found or already processed' };
+        }
+      } else {
+        store = await this.prisma.store.findFirst({
+          where: { storeNumber: merchant_trans_id },
+          include: { contracts: true },
+        });
+      }
 
-      const store = await this.prisma.store.findFirst({
-        where: { storeNumber: merchant_trans_id },
-        include: { contracts: true },
-      });
-      console.log(store)
-      console.log(await this.prisma.store.findFirst({
-        where: { storeNumber: merchant_trans_id },
-        include: { contracts: true },
-      }))
-
-      if (store) {
-
-        const contract =
-          store.contracts?.find((c: any) => c.isActive) ??
-          store.contracts?.[0];
-        console.log(contract)
+      if (transaction || store) {
+        let contract = transaction?.contract;
+        if (!contract && store) {
+          contract = store.contracts?.find((c: any) => c.isActive) ?? store.contracts?.[0];
+        }
 
         if (!contract || !contract.isActive) {
 
@@ -135,8 +145,8 @@ export class ClickWebhookService {
 
         // Block only if current month's period already paid
         const startOfMonth = new Date();
-        startOfMonth.setDate(1);
-        startOfMonth.setHours(0, 0, 0, 0);
+        startOfMonth.setUTCDate(1);
+        startOfMonth.setUTCHours(0, 0, 0, 0);
         const existingPeriod = await this.prisma.contractPaymentPeriod.findFirst({
           where: { contractId: contract.id, periodStart: startOfMonth, status: 'PAID' },
         });
@@ -159,23 +169,25 @@ export class ClickWebhookService {
         }
 
 
-        transaction = await this.prisma.transaction.create({
-          data: {
-            transactionId: String(click_trans_id),
-            amount: new Prisma.Decimal(amount),
-            status: 'PENDING',
-            paymentMethod: 'CLICK',
-            contract: { connect: { id: contract.id } },
-          },
-        });
+        // Create link if not already using the transaction from TX_ reference
+        if (!transaction) {
+          transaction = await this.prisma.transaction.create({
+            data: {
+              transactionId: String(click_trans_id),
+              amount: new Prisma.Decimal(amount),
+              status: 'PENDING',
+              paymentMethod: 'CLICK',
+              contract: { connect: { id: contract.id } },
+            },
+          });
+        }
       } else {
-
         const attendanceId = Number(merchant_trans_id);
         if (isNaN(attendanceId)) {
           return { click_trans_id, merchant_trans_id, error: -6, error_note: 'Store or attendance not found' };
         }
 
-        const attendance = await this.prisma.attendance.findUnique({ where: { id: attendanceId } });
+        attendance = await this.prisma.attendance.findUnique({ where: { id: attendanceId } });
         if (!attendance) {
           return { click_trans_id, merchant_trans_id, error: -6, error_note: 'Store or attendance not found' };
         }
@@ -184,9 +196,9 @@ export class ClickWebhookService {
 
 
         const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
+        todayStart.setUTCHours(0, 0, 0, 0);
         const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+        todayEnd.setUTCHours(23, 59, 59, 999);
 
         const existingDaily = await this.prisma.transaction.findFirst({
           where: { attendanceId: attendance.id, status: 'PAID', createdAt: { gte: todayStart, lte: todayEnd } },
@@ -324,6 +336,7 @@ export class ClickWebhookService {
       // Find by Click transaction id first (new flow), fallback to merchant_trans_id for legacy records
       let transaction =
         (await this.prisma.transaction.findUnique({ where: { transactionId: String(click_trans_id) } })) ??
+        (await this.prisma.transaction.findUnique({ where: { id: (merchant_trans_id.startsWith('TX_') ? Number(merchant_trans_id.split('_')[1]) : -1) } })) ??
         (await this.prisma.transaction.findUnique({ where: { transactionId: merchant_trans_id } }));
 
       if (!transaction) {
@@ -343,13 +356,40 @@ export class ClickWebhookService {
           data: { status: 'PAID', paymentMethod: 'CLICK' },
         });
         if (transaction.contractId) {
-          await this.contractPayments.recordPaidTransaction(transaction.id);
+          let forcedStart: Date | undefined;
+          if (transaction.transactionId.startsWith('INTENT:')) {
+            const parts = transaction.transactionId.split(':');
+            if (parts[3] && parts[3].length === 7) {
+              forcedStart = new Date(parts[3] + '-01');
+            }
+          }
+          await this.contractPayments.recordPaidTransaction(transaction.id, forcedStart);
         }
 
 
         if (transaction.attendanceId) {
           await this.prisma.attendance.update({ where: { id: transaction.attendanceId }, data: { status: 'PAID' } });
         }
+
+        // --- Start Click Fiscalization ---
+        try {
+          const fiscalRes = await this.submitFiscalToClick(
+            String(click_trans_id),
+            Number(transaction.amount),
+            tenantId,
+          );
+          await this.prisma.transaction.update({
+            where: { id: transaction.id },
+            data: {
+              fiscalErrorCode: fiscalRes.error_code,
+              fiscalErrorNote: fiscalRes.error_note,
+              fiscalQrCode: fiscalRes.qrcode || null,
+            },
+          });
+        } catch (fErr) {
+          this.logger.error(`[FISCAL] Failed for click_trans=${click_trans_id}: ${fErr.message}`);
+        }
+        // --- End Click Fiscalization ---
       }
 
 
@@ -372,6 +412,61 @@ export class ClickWebhookService {
         merchant_prepare_id: clickData.merchant_prepare_id,
         error: -8,
         error_note: 'System error',
+      };
+    }
+  }
+
+  private async submitFiscalToClick(clickTransId: string, amount: number, tenantId: string) {
+    try {
+      const cfg = this.getTenantConfig(tenantId);
+      const timestamp = Math.floor(Date.now() / 1000);
+      const signature = crypto.createHash('sha1').update(timestamp + cfg.secretKey).digest('hex');
+      const authHeader = `${cfg.serviceId}:${signature}:${timestamp}`;
+
+      // Convert amount to tiyins (Click API expects 1/100 of a soum)
+      const amountInTiyins = Math.round(amount * 100);
+
+      const payload = {
+        service_id: parseInt(cfg.serviceId),
+        payment_id: parseInt(clickTransId),
+        items: [
+          {
+            Name: "Ijaraga berish xizmati", // Rental service
+            SPIC: "10501001001000000", // Generic SPIC for rental services
+            PackageCode: "0",
+            GoodPrice: amountInTiyins,
+            Price: amountInTiyins,
+            Amount: 1,
+            VAT: 0,
+            VATPercent: 0,
+          }
+        ],
+        received_ecash: amountInTiyins,
+        received_cash: 0,
+        received_card: 0
+      };
+
+      this.logger.log(`[FISCAL] Submitting to Click for click_trans=${clickTransId}`);
+      
+      const response = await axios.post(
+        'https://api.click.uz/v2/merchant/payment/ofd_data/submit_items',
+        payload,
+        {
+          headers: {
+            'Auth': authHeader,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      this.logger.log(`[FISCAL] Result for click_trans=${clickTransId}: err=${response.data.error_code}`);
+      return response.data;
+    } catch (error: any) {
+      this.logger.error(`[FISCAL] Error submitting to Click: ${error.response?.data?.error_note || error.message}`);
+      return { 
+        error_code: error.response?.data?.error_code || -1, 
+        error_note: error.response?.data?.error_note || error.message 
       };
     }
   }

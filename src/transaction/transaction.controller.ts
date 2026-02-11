@@ -6,12 +6,19 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery, ApiParam, 
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 
+import { ExcelService } from '../common/excel/excel.service';
+import type { Response } from 'express';
+import { Res } from '@nestjs/common';
+
 @ApiTags('Transactions')
 @ApiBearerAuth()
 @Controller('transactions')
 @UseGuards(JwtAuthGuard)
 export class TransactionsController {
-  constructor(private readonly transactionsService: TransactionsService) { }
+  constructor(
+    private readonly transactionsService: TransactionsService,
+    private readonly excelService: ExcelService
+  ) { }
 
   @Post()
   @ApiOperation({ summary: 'Create a new transaction' })
@@ -58,6 +65,63 @@ export class TransactionsController {
       contractId: contractId ? +contractId : undefined,
       attendanceId: attendanceId ? +attendanceId : undefined,
     });
+  }
+
+  @Get('export/excel')
+  @ApiOperation({ summary: 'Export transactions to Excel' })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'paymentMethod', required: false })
+  @ApiQuery({ name: 'source', required: false })
+  @ApiQuery({ name: 'dateFrom', required: false })
+  @ApiQuery({ name: 'dateTo', required: false })
+  @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'attendanceId', required: false })
+  async exportExcel(
+    @Res() res: Response,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('paymentMethod') paymentMethod?: string,
+    @Query('source') source?: 'contract' | 'attendance',
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('contractId') contractId?: number,
+    @Query('attendanceId') attendanceId?: number,
+  ) {
+    const { data } = await this.transactionsService.findAll({
+      search,
+      status,
+      paymentMethod,
+      source,
+      dateFrom,
+      dateTo,
+      contractId: contractId ? +contractId : undefined,
+      attendanceId: attendanceId ? +attendanceId : undefined,
+      limit: 100000, // Large limit for export
+      page: 1,
+    });
+
+    const flattenedData = data.map(t => ({
+      'ID': t.id,
+      'Transaction ID': t.transactionId,
+      'Amount': Number(t.amount),
+      'Status': t.status,
+      'Payment Method': t.paymentMethod,
+      'Source': t.contractId ? 'Contract' : (t.attendanceId ? 'Attendance' : 'Other'),
+      'Date': t.createdAt,
+      'Payer/Owner': t.contract?.owner?.fullName || '',
+      'Store/Stall': t.contract?.store?.storeNumber || t.attendance?.Stall?.stallNumber || '',
+    }));
+
+    const buffer = this.excelService.generateExcel(flattenedData, 'Transactions');
+    
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="transactions.xlsx"',
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
   }
 
   @Get(':id')

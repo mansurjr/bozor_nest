@@ -99,7 +99,9 @@ export class StoresService {
     });
 
     const filtered = opts?.onlyFree ? withOccupation.filter((s: any) => !s.isOccupied) : withOccupation;
-
+    filtered.forEach(element => {
+      console.log(element)
+    });
     const resultTotal = opts?.onlyFree ? filtered.length : total;
     const totalPages =
       limit && limit > 0 ? Math.ceil(resultTotal / limit) : resultTotal > 0 ? 1 : 0;

@@ -26,7 +26,7 @@ export class AppService implements OnModuleInit {
           isActive: true,
         },
       });
-      console.log("✅ Superadmin created:", superAdminEmail);
+
     }
   }
 }

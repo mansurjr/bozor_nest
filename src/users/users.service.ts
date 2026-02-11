@@ -127,7 +127,7 @@ export class UserService {
       throw new ForbiddenException('ADMIN can delete CHECKER only');
     }
 
-
+    console.log(currentUser.role)
     if (![Roles.ADMIN, Roles.SUPERADMIN as Roles].includes(currentUser.role)) {
       throw new ForbiddenException('You do not have permission to delete users');
     }

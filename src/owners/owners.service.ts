@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOwnerDto } from './dto/create-owner.dto';
 import { UpdateOwnerDto } from './dto/update-owner.dto';
@@ -8,13 +8,22 @@ export class OwnersService {
   constructor(private readonly prisma: PrismaService) { }
 
   async create(dto: CreateOwnerDto, createdById: number) {
+    const existingOwner = await this.prisma.owner.findUnique({
+      where: { tin: dto.tin },
+    })
+    if (existingOwner) {
+      throw new ConflictException('Owner with this TIN already exists');
+    }
     return this.prisma.owner.create({
       data: { ...dto, createdById },
     });
   }
 
-  async findAll(search?: string, page = 1, limit = 10) {
+  async findAll(search?: string, page = 1, limit = 10, isActive?: boolean) {
     const where: any = {};
+    if (isActive !== undefined) {
+      where.isActive = isActive;
+    }
 
     if (search) {
       where.OR = [
@@ -28,6 +37,7 @@ export class OwnersService {
 
     const [owners, total] = await Promise.all([
       this.prisma.owner.findMany({
+        orderBy: { createdAt: 'desc' },
         where,
         skip,
         take: limit,
@@ -40,8 +50,16 @@ export class OwnersService {
           isActive: true,
           createdAt: true,
           updatedAt: true,
+          archivedAt: true,
 
           createdBy: {
+            select: {
+              firstName: true,
+              lastName: true,
+            },
+          },
+
+          archivedBy: {
             select: {
               firstName: true,
               lastName: true,
@@ -74,7 +92,7 @@ export class OwnersService {
             },
           },
         },
-      }),
+      }, ),
 
       this.prisma.owner.count({ where }),
     ]);
@@ -93,22 +111,70 @@ export class OwnersService {
   async findOne(id: number) {
     const owner = await this.prisma.owner.findUnique({
       where: { id },
-      include: { createdBy: true, contracts: { include: { store: true } } },
+      include: { 
+        createdBy: true, 
+        archivedBy: true,
+        contracts: { include: { store: true } } 
+      },
     });
     if (!owner) throw new NotFoundException(`Owner with id ${id} not found`);
     return owner;
   }
 
-  async update(id: number, dto: UpdateOwnerDto) {
-    await this.findOne(id);
-    return this.prisma.owner.update({
-      where: { id },
-      data: dto,
+  async update(id: number, dto: UpdateOwnerDto, userId?: number) {
+    const owner = await this.findOne(id);
+
+    return this.prisma.$transaction(async (tx) => {
+      const data: any = { ...dto };
+      
+      if (dto.isActive === false && owner.isActive === true) {
+        data.archivedById = userId;
+        data.archivedAt = new Date();
+      } else if (dto.isActive === true && owner.isActive === false) {
+        data.archivedById = null;
+        data.archivedAt = null;
+      }
+
+      if (dto.isActive === false) {
+        await tx.contract.updateMany({
+          where: { ownerId: id },
+          data: { 
+            isActive: false,
+            archivedById: userId,
+            archivedAt: new Date(),
+          },
+        });
+      }
+
+      return tx.owner.update({
+        where: { id },
+        data,
+      });
     });
   }
 
-  async remove(id: number) {
-    await this.findOne(id);
-    return this.prisma.owner.delete({ where: { id } });
+  async remove(id: number, userId?: number) {
+    const owner = await this.findOne(id);
+    return this.prisma.$transaction(async (tx) => {
+      // Deactivate all associated contracts
+      await tx.contract.updateMany({
+        where: { ownerId: id },
+        data: { 
+          isActive: false,
+          archivedById: userId,
+          archivedAt: new Date(),
+        },
+      });
+
+      // Deactivate the owner
+      return tx.owner.update({
+        where: { id },
+        data: { 
+          isActive: false,
+          archivedById: userId,
+          archivedAt: new Date(),
+        },
+      });
+    });
   }
 }
