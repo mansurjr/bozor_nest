@@ -46,7 +46,7 @@ export class ContractService {
     return null;
   }
 
-  private buildClickPaymentUrl(amount: string | null, transactionParam: string | number) {
+  private buildClickPaymentUrl(amount: number | null, transactionParam: string | number) {
     if (!amount) return null;
 
     const serviceId = this.getConfigValue("PAYMENT_SERVICE_ID", "CLICK_SERVICE_ID");
@@ -56,7 +56,7 @@ export class ContractService {
     return `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${transactionParam}`;
   }
 
-  private buildPaymePaymentUrl(amount: string | null, contractReference: string | number) {
+  private buildPaymePaymentUrl(amount: number | null, contractReference: string | number) {
     if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli"){
       console.log("Invalid amount or tenant id");
       console.log("Amount", amount);
@@ -109,12 +109,12 @@ export class ContractService {
     const updateData: Record<string, string> = {};
 
     if (needsClick) {
-      const clickUrl = this.buildClickPaymentUrl(amount, storeNumber);
+      const clickUrl = this.buildClickPaymentUrl(+amount, storeNumber);
       if (clickUrl) updateData.click_payment_url = clickUrl;
     }
 
     if (needsPayme) {
-      const paymeUrl = this.buildPaymePaymentUrl(amount, storeNumber);
+      const paymeUrl = this.buildPaymePaymentUrl(+amount, storeNumber);
       if (paymeUrl) updateData.payme_payment_url = paymeUrl;
     }
 
@@ -134,10 +134,10 @@ export class ContractService {
 
     const updateData: Record<string, string> = {};
 
-    const clickUrl = this.buildClickPaymentUrl(amount, storeNumber);
+    const clickUrl = this.buildClickPaymentUrl(+amount, storeNumber);
     if (clickUrl) updateData.click_payment_url = clickUrl;
 
-    const paymeUrl = this.buildPaymePaymentUrl(amount, storeNumber);
+    const paymeUrl = this.buildPaymePaymentUrl(+amount, storeNumber);
     if (paymeUrl) updateData.payme_payment_url = paymeUrl;
 
     if (!Object.keys(updateData).length) return null;
@@ -479,8 +479,8 @@ export class ContractService {
 
     const merchantTransId = `TX_${pendingTx.id}`;
     const url = method === 'PAYME' 
-      ? this.buildPaymePaymentUrl(totalAmount.toString(), merchantTransId)
-      : this.buildClickPaymentUrl(totalAmount.toString(), merchantTransId);
+      ? this.buildPaymePaymentUrl(totalAmount, merchantTransId)
+      : this.buildClickPaymentUrl(totalAmount, merchantTransId);
 
       console.log(url);
     return {
