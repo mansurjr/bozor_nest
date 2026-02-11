@@ -57,15 +57,24 @@ export class ContractService {
   }
 
   private buildPaymePaymentUrl(amount: string | null, contractReference: string | number) {
-    if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli") return null;
+    if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli"){
+      console.log("Invalid amount or tenant id");
+      return null;
+    }
 
     const merchantId = this.getConfigValue("PAYME_MERCHANT_ID");
     if (!merchantId) return null;
 
     const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount)) return null;
+    if (!Number.isFinite(parsedAmount)){
+      console.log("Invalid amount");
+      return null;
+    } 
     const amountInTiyin = Math.round(parsedAmount * 100);
-    if (!amountInTiyin) return null;
+    if (!amountInTiyin){
+      console.log("Invalid amount in tiyin");
+      return null;
+    }
 
     const params = `m=${merchantId};ac.contractId=${contractReference};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=https://myrent.uz/contracts`;
     const latinPayload = Buffer.from(params, "utf8").toString("latin1");
