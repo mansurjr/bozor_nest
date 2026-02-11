@@ -445,6 +445,7 @@ export class ContractService {
   }
 
   async getPaymentUrls(id: number, months?: number, startMonth?: string, method: 'CLICK' | 'PAYME' = 'CLICK') {
+    console.log(`[getPaymentUrls] 📦 Request for contract ${id} with ${months} months, startMonth: ${startMonth}, method: ${method}`);
     const contract = await this.prisma.contract.findUnique({
       where: { id },
       include: { store: true },
