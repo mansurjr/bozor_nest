@@ -301,12 +301,19 @@ export class PaymeService {
 
     if (updatedTransaction.contractId) {
       let forcedStart: Date | undefined;
+      let forcedMonths: number | undefined;
+
       // If we have a parent intent (via TX_ account flow), try to extract parameters
       if (updatedTransaction.prepareId) {
         const intentTx = await this.prisma.transaction.findUnique({ where: { id: updatedTransaction.prepareId } });
         if (intentTx && intentTx.transactionId.startsWith('INTENT:')) {
           const parts = intentTx.transactionId.split(':');
           // Format: INTENT:contractId:count:startMonth:timestamp
+          
+          if (parts[2]) {
+             forcedMonths = parseInt(parts[2]);
+          }
+
           if (parts[3] && parts[3].length === 7) {
             forcedStart = new Date(parts[3] + '-01');
           }
@@ -317,7 +324,7 @@ export class PaymeService {
           });
         }
       }
-      await this.contractPayments.recordPaidTransaction(updatedTransaction.id, forcedStart);
+      await this.contractPayments.recordPaidTransaction(updatedTransaction.id, forcedStart, forcedMonths);
     }
 
     if (updatedTransaction.attendanceId) {

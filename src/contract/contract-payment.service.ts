@@ -168,7 +168,7 @@ export class ContractPaymentPeriodsService {
     };
   }
 
-  async recordPaidTransaction(transactionId: number, forcedStart?: Date) {
+  async recordPaidTransaction(transactionId: number, forcedStart?: Date, forcedMonths?: number) {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id: transactionId },
       include: { contract: true },
@@ -184,8 +184,11 @@ export class ContractPaymentPeriodsService {
     const contract = transaction.contract;
     const amount = Number(transaction.amount?.toString() ?? 0);
     const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
-    const months =
-      monthlyFee > 0 ? this.clampMonths(Math.floor((amount + 0.0001) / monthlyFee) || 1) : 1;
+    
+    // Prioritize forcedMonths from intent, fallback to amount-based calculation
+    const months = forcedMonths ?? (
+      monthlyFee > 0 ? this.clampMonths(Math.floor((amount + 0.0001) / monthlyFee) || 1) : 1
+    );
     
     let start: Date;
     if (forcedStart) {

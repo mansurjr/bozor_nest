@@ -361,13 +361,20 @@ export class ClickWebhookService {
         });
         if (transaction.contractId) {
           let forcedStart: Date | undefined;
+          let forcedMonths: number | undefined;
+
           if (transaction.transactionId.startsWith('INTENT:')) {
             const parts = transaction.transactionId.split(':');
+            
+            if (parts[2]) {
+              forcedMonths = parseInt(parts[2]);
+            }
+
             if (parts[3] && parts[3].length === 7) {
               forcedStart = new Date(parts[3] + '-01');
             }
           }
-          await this.contractPayments.recordPaidTransaction(transaction.id, forcedStart);
+          await this.contractPayments.recordPaidTransaction(transaction.id, forcedStart, forcedMonths);
         }
 
 
