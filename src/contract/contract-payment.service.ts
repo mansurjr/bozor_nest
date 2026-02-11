@@ -113,7 +113,7 @@ export class ContractPaymentPeriodsService {
       (target.getUTCFullYear() - nextPeriodStart.getUTCFullYear()) * 12 +
       (target.getUTCMonth() - nextPeriodStart.getUTCMonth());
 
-    const monthsAhead = aheadDiff > 0 ? aheadDiff : 0;
+    const monthsAhead = aheadDiff > 0 ? aheadDiff - 1 : 0;
     const debtMonths = debtDiff > 0 ? debtDiff : 0;
     const debtAmount = debtMonths * monthlyFee;
     
