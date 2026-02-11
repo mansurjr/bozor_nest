@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
@@ -13,6 +13,7 @@ export class ClickWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    @Inject(forwardRef(() => ContractPaymentPeriodsService))
     private readonly contractPayments: ContractPaymentPeriodsService,
   ) { }
 

@@ -14,7 +14,7 @@ import { DateTime } from "luxon";
 import { ContractPaymentPeriodsService } from "../contract/contract-payment.service";
 import { ConfigService } from "@nestjs/config";
 import * as base64 from "base-64";
-import { NotFoundException } from "@nestjs/common";
+import { Inject, NotFoundException, forwardRef } from "@nestjs/common";
 
 type CheckResult =
   | { error: { code: number; message: { ru: string; en: string; uz: string } }; data: null }
@@ -24,6 +24,7 @@ type CheckResult =
 export class PaymeService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => ContractPaymentPeriodsService))
     private readonly contractPayments: ContractPaymentPeriodsService,
     private readonly config: ConfigService,
   ) {}
