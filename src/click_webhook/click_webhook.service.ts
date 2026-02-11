@@ -172,6 +172,18 @@ export class ClickWebhookService {
           }
         }
 
+        // Cancel other pending transactions for this contract to avoid duplicates
+        await this.prisma.transaction.updateMany({
+          where: {
+            contractId: contract.id,
+            status: 'PENDING',
+            id: { not: transaction?.id || -1 },
+          },
+          data: {
+            status: 'CANCELED',
+            cancelTime: new Date(),
+          },
+        });
 
         // Create link if not already using the transaction from TX_ reference
         if (!transaction) {

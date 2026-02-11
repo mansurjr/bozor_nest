@@ -161,6 +161,21 @@ export class PaymeService {
       }
 
       console.log(`[createTransaction] Contract: incoming=${amount}, expected(total)=${entityAmount}`);
+
+      // Cancel other pending transactions for this contract
+      await this.prisma.transaction.updateMany({
+        where: {
+          contractId: contractIdNum,
+          status: 'PENDING',
+          id: { not: intentId || -1 }, // Don't cancel the current intent if we are using one
+        },
+        data: {
+          status: 'CANCELED',
+          state: -1,
+          cancelTime: new Date(),
+          reason: 1, // Cancelled by system for new payment
+        },
+      });
     } else if (attendanceId) {
       const { attendance, alreadyPaid } = await checkAttendance(this.prisma, attendanceId);
       if (!attendance || alreadyPaid) return { error: PaymeError.AlreadyDone, data: null };
@@ -317,10 +332,10 @@ export class PaymeService {
           if (parts[3] && parts[3].length === 7) {
             forcedStart = new Date(parts[3] + '-01');
           }
-          // Mark the parent intent as fulfilled
+          // Mark the parent intent as fulfilled (use FULFILLED to distinguish from the actual money-carrying transaction)
           await this.prisma.transaction.update({
             where: { id: updatedTransaction.prepareId },
-            data: { status: 'PAID' },
+            data: { status: 'FULFILLED' },
           });
         }
       }
