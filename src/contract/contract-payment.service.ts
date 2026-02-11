@@ -57,7 +57,7 @@ export class ContractPaymentPeriodsService {
 
   private async resolveNextStart(contractId: number, fallback: Date) {
     const latest = await this.prisma.contractPaymentPeriod.findFirst({
-      where: { contractId },
+      where: { contractId, status: ContractPaymentStatus.PAID },
       orderBy: { periodStart: 'desc' },
     });
     if (latest) return this.addMonths(latest.periodStart, 1);
@@ -76,7 +76,7 @@ export class ContractPaymentPeriodsService {
 
   private async ensureContractSeeded(contractId: number) {
     const hasPeriod = await this.prisma.contractPaymentPeriod.findFirst({
-      where: { contractId },
+      where: { contractId, status: ContractPaymentStatus.PAID },
       select: { id: true },
     });
     if (hasPeriod) return;
@@ -88,7 +88,7 @@ export class ContractPaymentPeriodsService {
     const lacking = await this.prisma.contract.findMany({
       where: {
         id: { in: contractIds },
-        paymentPeriods: { none: {} },
+        paymentPeriods: { none: { status: ContractPaymentStatus.PAID } },
       },
       select: { id: true },
     });
