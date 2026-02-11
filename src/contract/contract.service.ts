@@ -4,8 +4,10 @@ import { CreateContractDto } from "./dto/create-contract.dto";
 import { UpdateContractDto } from "./dto/update-contract.dto";
 import { Prisma, ContractPaymentStatus, ContractPaymentType } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
-import * as base64 from "base-64";
 import { ContractPaymentPeriodsService, ContractPaymentSnapshot } from "./contract-payment.service";
+import { PaymeService } from "../payme/payme.service";
+import { ClickWebhookService } from "../click_webhook/click_webhook.service";
+import { forwardRef, Inject } from "@nestjs/common";
 
 
 @Injectable()
@@ -14,17 +16,17 @@ export class ContractService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly contractPayments: ContractPaymentPeriodsService,
+    @Inject(forwardRef(() => PaymeService))
+    private readonly paymeService: PaymeService,
+    @Inject(forwardRef(() => ClickWebhookService))
+    private readonly clickService: ClickWebhookService,
   ) { }
 
-  private getConfigValue(...keys: string[]): string | null {
-    for (const key of keys) {
-      if (!key) continue;
-      const value = this.config.get<string>(key) ?? process.env[key];
-      if (typeof value === "string" && value.trim().length) {
-        return value.trim();
-      }
-    }
-    return null;
+  private hasValidPaymeUrl(url?: string | null) {
+    if (!url) return false;
+    if (!url.startsWith("https://checkout.paycom.uz/")) return false;
+    const payload = url.replace("https://checkout.paycom.uz/", "");
+    return payload.length > 0 && /^[A-Za-z0-9+/=]+$/.test(payload);
   }
 
   private normalizeAmount(amount?: any) {
@@ -46,52 +48,6 @@ export class ContractService {
     return null;
   }
 
-  private buildClickPaymentUrl(amount: number | null, transactionParam: string | number) {
-    if (!amount) return null;
-
-    const serviceId = this.getConfigValue("PAYMENT_SERVICE_ID", "CLICK_SERVICE_ID");
-    const merchantId = this.getConfigValue("PAYMENT_MERCHANT_ID", "CLICK_MERCHANT_ID");
-    if (!serviceId || !merchantId) return null;
-
-    return `https://my.click.uz/services/pay?service_id=${serviceId}&merchant_id=${merchantId}&amount=${amount}&transaction_param=${transactionParam}`;
-  }
-
-  private buildPaymePaymentUrl(amount: number | null, contractReference: string | number) {
-    if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli"){
-      console.log("Invalid amount or tenant id");
-      console.log("Amount", amount);
-      console.log("Tenant id", this.config.get<string>("TENANT_ID"));
-      return null;
-    }
-
-    const merchantId = this.getConfigValue("PAYME_MERCHANT_ID");
-    if (!merchantId) return null;
-
-    const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount)){
-      console.log("Invalid amount");
-      return null;
-    } 
-    const amountInTiyin = Math.round(parsedAmount * 100);
-    if (!amountInTiyin){
-      console.log("Invalid amount in tiyin");
-      return null;
-    }
-
-    const params = `m=${merchantId};ac.contractId=${contractReference.toString()};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=https://myrent.uz/contracts`;
-    console.log("Params", params);
-    const latinPayload = Buffer.from(params, "utf8").toString("latin1");
-    const encoded = base64.encode(latinPayload);
-    return `https://checkout.paycom.uz/${encoded}`;
-  }
-
-  private hasValidPaymeUrl(url?: string | null) {
-    if (!url) return false;
-    if (!url.startsWith("https://checkout.paycom.uz/")) return false;
-    const payload = url.replace("https://checkout.paycom.uz/", "");
-    return payload.length > 0 && /^[A-Za-z0-9+/=]+$/.test(payload);
-  }
-
   private async ensureStorePaymentLinks(contract: any) {
     if (!contract?.store) return contract;
 
@@ -110,12 +66,12 @@ export class ContractService {
     const updateData: Record<string, string> = {};
 
     if (needsClick) {
-      const clickUrl = this.buildClickPaymentUrl(+amount, storeNumber);
+      const clickUrl = this.clickService.buildClickPaymentUrl(+amount, storeNumber);
       if (clickUrl) updateData.click_payment_url = clickUrl;
     }
 
     if (needsPayme) {
-      const paymeUrl = this.buildPaymePaymentUrl(+amount, storeNumber);
+      const paymeUrl = this.paymeService.buildPaymePaymentUrl(+amount, storeNumber);
       if (paymeUrl) updateData.payme_payment_url = paymeUrl;
     }
 
@@ -135,10 +91,10 @@ export class ContractService {
 
     const updateData: Record<string, string> = {};
 
-    const clickUrl = this.buildClickPaymentUrl(+amount, storeNumber);
+    const clickUrl = this.clickService.buildClickPaymentUrl(+amount, storeNumber);
     if (clickUrl) updateData.click_payment_url = clickUrl;
 
-    const paymeUrl = this.buildPaymePaymentUrl(+amount, storeNumber);
+    const paymeUrl = this.paymeService.buildPaymePaymentUrl(+amount, storeNumber);
     if (paymeUrl) updateData.payme_payment_url = paymeUrl;
 
     if (!Object.keys(updateData).length) return null;
@@ -444,54 +400,11 @@ export class ContractService {
     return this.findOne(id);
   }
 
-  async getPaymentUrls(id: number, months?: number, startMonth?: string, method: 'CLICK' | 'PAYME' = 'CLICK') {
-    console.log(`[getPaymentUrls] 📦 Request for contract ${id} with ${months} months, startMonth: ${startMonth}, method: ${method}`);
-    const contract = await this.prisma.contract.findUnique({
-      where: { id },
-      include: { store: true },
-    });
-    if (!contract) throw new NotFoundException(`Contract with id ${id} not found`);
-
-    const snapshot = await this.contractPayments.getSnapshotForContract({
-      id: contract.id,
-      issueDate: contract.issueDate,
-      createdAt: contract.createdAt,
-      shopMonthlyFee: contract.shopMonthlyFee,
-    } as any);
-
-    const count = months || snapshot.debtMonths || 1;
-    const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
-    const totalAmount = monthlyFee * count;
-    
-    const startPart = startMonth || snapshot.nextPeriodStart.toISOString().substring(0, 7);
-    const intent = `INTENT:${contract.id}:${count}:${startPart}:${Date.now()}`;
-
-    console.log(`[getPaymentUrls] 📦 Intent: ${intent}`);
-    console.log(`[getPaymentUrls] 📦 Start month: ${startPart}`);
-    const pendingTx = await this.prisma.transaction.create({
-      data: {
-        transactionId: intent,
-        amount: totalAmount as any,
-        status: 'PENDING',
-        paymentMethod: method,
-        contract: { connect: { id: contract.id } },
-      },
-    });
-
-    const merchantTransId = `TX_${pendingTx.id}`;
-    const url = method === 'PAYME' 
-      ? this.buildPaymePaymentUrl(totalAmount, merchantTransId)
-      : this.buildClickPaymentUrl(totalAmount, merchantTransId);
-
-      console.log(url);
-    return {
-      transactionReference: merchantTransId,
-      months: count,
-      amount: totalAmount,
-      startMonth: startPart,
-      method,
-      url,
-    };
+  async getPaymentUrls(id: number, months?: number, startMonth?: string, method: 'CLICK' | 'PAYME' = 'CLICK'): Promise<string | null> {
+    if (method === 'PAYME') {
+      return this.paymeService.getContractPaymentUrl(id, months, startMonth);
+    }
+    return this.clickService.getContractPaymentUrl(id, months, startMonth);
   }
 
   async update(id: number, dto: UpdateContractDto, userId?: number) {

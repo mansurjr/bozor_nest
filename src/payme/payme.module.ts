@@ -7,5 +7,6 @@ import { ContractModule } from '../contract/contract.module';
   imports: [ContractModule],
   controllers: [PaymeController],
   providers: [PaymeService],
+  exports: [PaymeService],
 })
 export class PaymeModule {}

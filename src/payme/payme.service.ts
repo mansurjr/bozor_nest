@@ -12,6 +12,9 @@ import { Attendance, AttendancePayment, Prisma, Store } from "@prisma/client";
 import { checkAttendance, checkStore } from "./utils";
 import { DateTime } from "luxon";
 import { ContractPaymentPeriodsService } from "../contract/contract-payment.service";
+import { ConfigService } from "@nestjs/config";
+import * as base64 from "base-64";
+import { NotFoundException } from "@nestjs/common";
 
 type CheckResult =
   | { error: { code: number; message: { ru: string; en: string; uz: string } }; data: null }
@@ -22,6 +25,7 @@ export class PaymeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contractPayments: ContractPaymentPeriodsService,
+    private readonly config: ConfigService,
   ) {}
 
   async handleTransactionMethods(reqBody: any) {
@@ -432,5 +436,66 @@ export class PaymeService {
         })),
       },
     };
+  }
+
+  private getConfigValue(...keys: string[]): string | null {
+    for (const key of keys) {
+      if (!key) continue;
+      const value = this.config.get<string>(key) ?? process.env[key];
+      if (typeof value === "string" && value.trim().length) {
+        return value.trim();
+      }
+    }
+    return null;
+  }
+
+  public buildPaymePaymentUrl(amount: number | null, contractReference: string | number) {
+    if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli") {
+      return null;
+    }
+    const merchantId = this.getConfigValue("PAYME_MERCHANT_ID");
+    if (!merchantId) return null;
+    const amountInTiyin = Math.round(Number(amount) * 100);
+    const params = `m=${merchantId};ac.contractId=${contractReference.toString()};ac.id=1;ac.attendanceId=null;a=${amountInTiyin};c=https://myrent.uz/contracts`;
+    const latinPayload = Buffer.from(params, "utf8").toString("latin1");
+    const encoded = base64.encode(latinPayload);
+    return `https://checkout.paycom.uz/${encoded}`;
+  }
+
+  async getContractPaymentUrl(id: number, months?: number, startMonth?: string) {
+    const contract = await this.prisma.contract.findUnique({ where: { id }, include: { store: true } });
+    if (!contract) throw new NotFoundException(`Contract with id ${id} not found`);
+
+    const snapshot = await this.contractPayments.getSnapshotForContract({
+      id: contract.id,
+      issueDate: contract.issueDate,
+      createdAt: contract.createdAt,
+      shopMonthlyFee: contract.shopMonthlyFee,
+    } as any);
+
+    const count = months || snapshot.debtMonths || 1;
+    const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
+    const totalAmount = monthlyFee * count;
+    const startPart = startMonth || snapshot.nextPeriodStart.toISOString().substring(0, 7);
+    const intent = `INTENT:${contract.id}:${count}:${startPart}:${Date.now()}`;
+
+    // Cancel other pending transactions for this contract
+    await this.prisma.transaction.updateMany({
+      where: { contractId: contract.id, status: "PENDING" },
+      data: { status: "CANCELED", cancelTime: new Date() },
+    });
+
+    const pendingTx = await this.prisma.transaction.create({
+      data: {
+        transactionId: intent,
+        amount: totalAmount as any,
+        status: "PENDING",
+        paymentMethod: "PAYME",
+        contract: { connect: { id: contract.id } },
+      },
+    });
+
+    const merchantTransId = `TX_${pendingTx.id}`;
+    return this.buildPaymePaymentUrl(totalAmount, merchantTransId);
   }
 }

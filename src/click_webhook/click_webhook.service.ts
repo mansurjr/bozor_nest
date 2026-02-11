@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
@@ -492,5 +492,50 @@ export class ClickWebhookService {
         error_note: error.response?.data?.error_note || error.message 
       };
     }
+  }
+
+  public buildClickPaymentUrl(amount: number | null, transactionParam: string | number) {
+    if (!amount) return null;
+    const tenantId = this.configService.get<string>('TENANT_ID');
+    if (!tenantId) return null;
+    const cfg = this.getTenantConfig(tenantId);
+    return `https://my.click.uz/services/pay?service_id=${cfg.serviceId}&merchant_id=${cfg.merchantId}&amount=${amount}&transaction_param=${transactionParam}`;
+  }
+
+  async getContractPaymentUrl(id: number, months?: number, startMonth?: string) {
+    const contract = await this.prisma.contract.findUnique({ where: { id }, include: { store: true } });
+    if (!contract) throw new NotFoundException(`Contract with id ${id} not found`);
+
+    const snapshot = await this.contractPayments.getSnapshotForContract({
+      id: contract.id,
+      issueDate: contract.issueDate,
+      createdAt: contract.createdAt,
+      shopMonthlyFee: contract.shopMonthlyFee,
+    } as any);
+
+    const count = months || snapshot.debtMonths || 1;
+    const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
+    const totalAmount = monthlyFee * count;
+    const startPart = startMonth || snapshot.nextPeriodStart.toISOString().substring(0, 7);
+    const intent = `INTENT:${contract.id}:${count}:${startPart}:${Date.now()}`;
+
+    // Cancel other pending transactions for this contract
+    await this.prisma.transaction.updateMany({
+      where: { contractId: contract.id, status: "PENDING" },
+      data: { status: "CANCELED", cancelTime: new Date() },
+    });
+
+    const pendingTx = await this.prisma.transaction.create({
+      data: {
+        transactionId: intent,
+        amount: totalAmount as any,
+        status: "PENDING",
+        paymentMethod: "CLICK",
+        contract: { connect: { id: contract.id } },
+      },
+    });
+
+    const merchantTransId = `TX_${pendingTx.id}`;
+    return this.buildClickPaymentUrl(totalAmount, merchantTransId);
   }
 }

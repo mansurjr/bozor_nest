@@ -7,5 +7,6 @@ import { ContractModule } from '../contract/contract.module';
   imports: [ContractModule],
   controllers: [ClickWebhookController],
   providers: [ClickWebhookService],
+  exports: [ClickWebhookService],
 })
 export class ClickWebhookModule {}
