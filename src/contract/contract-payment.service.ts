@@ -121,8 +121,14 @@ export class ContractPaymentPeriodsService {
   private buildSnapshotFromPeriod(period: { periodEnd: Date } | null, fallbackNext: Date, monthlyFee: number): ContractPaymentSnapshot {
     const now = this.startOfMonth(new Date());
     const target = this.addMonths(now, 1); // We want to be paid through the end of the current month
+    
+    // paidThrough is the actual end date of the last paid period
     const paidThrough = period?.periodEnd ?? null;
-    const nextPeriodStart = period ? this.startOfMonth(period.periodEnd) : this.startOfMonth(fallbackNext);
+    
+    // nextPeriodStart is the beginning of the first unpaid month
+    // If we have a paid period, the next period starts at periodEnd (which is already the start of next month)
+    // If no paid period, use the fallback (contract start or issue date)
+    const nextPeriodStart = period ? period.periodEnd : this.startOfMonth(fallbackNext);
     
     // Months ahead of the current month
     const aheadDiff =

@@ -158,14 +158,15 @@ export class ContractController {
   @ApiQuery({ name: 'months', required: false, type: Number, description: 'Number of months to pay for' })
   @ApiQuery({ name: 'startMonth', required: false, type: String, description: 'The month to start paying from (YYYY-MM)' })
   @ApiQuery({ name: 'method', required: false, enum: ['CLICK', 'PAYME'], description: 'Payment method to use' })
-  getPaymentUrls(
+  async getPaymentUrls(
     @Param('id', ParseIntPipe) id: number,
     @Query('months', new ParseIntPipe({ optional: true })) months?: number,
     @Query('startMonth') startMonth?: string,
     @Query('method') method?: string,
   ) {
     const paymentMethod = (method?.toUpperCase() === 'PAYME' ? 'PAYME' : 'CLICK') as 'CLICK' | 'PAYME';
-    return this.contractService.getPaymentUrls(id, months, startMonth, paymentMethod);
+    const url = await this.contractService.getPaymentUrls(id, months, startMonth, paymentMethod);
+    return { url };
   }
 
   @Get(':id/payments')
