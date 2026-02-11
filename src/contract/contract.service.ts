@@ -57,10 +57,12 @@ export class ContractService {
   }
 
   private buildPaymePaymentUrl(amount: number | null, contractReference: string | number) {
-    if (!amount || this.config.get<string>("TENANT_ID") !== "ipak_yuli"){
+    const configTenantId = this.config.get<string>("TENANT_ID")?.trim().replace(/['",]/g, '') || '';
+    if (!amount || configTenantId !== "ipak_yuli"){
       console.log("Invalid amount or tenant id");
       console.log("Amount", amount);
-      console.log("Tenant id", this.config.get<string>("TENANT_ID"));
+      console.log("Raw Tenant id", this.config.get<string>("TENANT_ID"));
+      console.log("Sanitized Tenant id", configTenantId);
       return null;
     }
 
