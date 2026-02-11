@@ -463,12 +463,11 @@ export class ContractService {
     const monthlyFee = Number(contract.shopMonthlyFee?.toString() ?? 0);
     const totalAmount = monthlyFee * count;
     
-    // Store the intent in transactionId since we don't have a metadata field
-    // Format: INTENT:id:months:startMonth:timestamp
     const startPart = startMonth || snapshot.nextPeriodStart.toISOString().substring(0, 7);
     const intent = `INTENT:${contract.id}:${count}:${startPart}:${Date.now()}`;
 
-    // Create a pending transaction to track this specific payment intent
+    console.log(`[getPaymentUrls] 📦 Intent: ${intent}`);
+    console.log(`[getPaymentUrls] 📦 Start month: ${startPart}`);
     const pendingTx = await this.prisma.transaction.create({
       data: {
         transactionId: intent,
