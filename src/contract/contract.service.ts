@@ -320,7 +320,7 @@ export class ContractService {
     const total = await this.prisma.contract.count({ where });
     const data = await this.prisma.contract.findMany({
       where,
-      include: { owner: true, store: true, createdBy: true, archivedBy: true, transactions: true },
+      include: { owner: true, store: true, createdBy: true, archivedBy: true, transactions: {where : {status : "PAID"}} },
       orderBy: { createdAt: 'desc' },
       ...(limit !== undefined ? { skip: (page - 1) * limit, take: limit } : {}),
     });
