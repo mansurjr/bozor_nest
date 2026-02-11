@@ -101,7 +101,9 @@ export class TransactionsService {
     const where: Prisma.TransactionWhereInput = {};
     if (search) {
       const numeric = Number(search);
-      const includesNumber = !Number.isNaN(numeric); 
+      // Ensure the number fits in a 32-bit signed integer (PostgreSQL INT4)
+      const isInt32 = Number.isInteger(numeric) && numeric >= -2147483648 && numeric <= 2147483647;
+      const includesNumber = !Number.isNaN(numeric) && isInt32;
       const normalizedSearch = search.trim().toUpperCase();
       const paymentMatches: ('CASH' | 'CLICK' | 'PAYME')[] = ['CASH', 'CLICK', 'PAYME'];
       const or: Prisma.TransactionWhereInput[] = [
