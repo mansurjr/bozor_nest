@@ -471,6 +471,7 @@ export class ContractService {
       ? this.buildPaymePaymentUrl(totalAmount.toString(), merchantTransId)
       : this.buildClickPaymentUrl(totalAmount.toString(), merchantTransId);
 
+      console.log(url);
     return {
       transactionReference: merchantTransId,
       months: count,
