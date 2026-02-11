@@ -4,13 +4,31 @@ function startOfCurrentMonth(reference = new Date()) {
   return new Date(reference.getFullYear(), reference.getMonth(), 1, 0, 0, 0, 0);
 }
 
-export const checkStore = async (prisma: PrismaService, storeNumber: string) => {
-  const store = await prisma.store.findFirst({
-    where: { storeNumber },
-    include: { contracts: true },
-  });
+export const checkStore = async (prisma: PrismaService, identifier: string) => {
+  let store: any = null;
+  let contract: any = null;
 
-  const contract = store?.contracts?.find((c: any) => c.isActive) ?? store?.contracts?.[0];
+  if (identifier.startsWith('TX_')) {
+    const txId = parseInt(identifier.split('_')[1]);
+    const transaction = await prisma.transaction.findUnique({
+      where: { id: txId },
+      include: { 
+        contract: { 
+          include: { store: true } 
+        } 
+      },
+    });
+    if (transaction?.contract) {
+      contract = transaction.contract;
+      store = transaction.contract.store;
+    }
+  } else {
+    store = await prisma.store.findFirst({
+      where: { storeNumber: identifier },
+      include: { contracts: true },
+    });
+    contract = store?.contracts?.find((c: any) => c.isActive) ?? store?.contracts?.[0];
+  }
 
   let paidThisMonth = false;
 
@@ -32,7 +50,7 @@ export const checkStore = async (prisma: PrismaService, storeNumber: string) => 
     store,
     contract,
     paidThisMonth,
-    paidOrIsNotActive: !contract || !contract.isActive || paidThisMonth,
+    paidOrIsNotActive: !contract || !contract.isActive || (identifier.startsWith('TX_') ? false : paidThisMonth),
   };
 };
 

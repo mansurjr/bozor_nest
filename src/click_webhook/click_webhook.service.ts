@@ -143,29 +143,33 @@ export class ClickWebhookService {
         }
 
 
-        // Block only if current month's period already paid
-        const startOfMonth = new Date();
-        startOfMonth.setUTCDate(1);
-        startOfMonth.setUTCHours(0, 0, 0, 0);
-        const existingPeriod = await this.prisma.contractPaymentPeriod.findFirst({
-          where: { contractId: contract.id, periodStart: startOfMonth, status: 'PAID' },
-        });
-        if (existingPeriod) {
-          return { click_trans_id, merchant_trans_id, error: -5, error_note: 'Already paid for this month' };
+        // Block only if current month's period already paid (Skip for TX_ intents)
+        if (!merchant_trans_id.startsWith('TX_')) {
+          const startOfMonth = new Date();
+          startOfMonth.setUTCDate(1);
+          startOfMonth.setUTCHours(0, 0, 0, 0);
+          const existingPeriod = await this.prisma.contractPaymentPeriod.findFirst({
+            where: { contractId: contract.id, periodStart: startOfMonth, status: 'PAID' },
+          });
+          if (existingPeriod) {
+            return { click_trans_id, merchant_trans_id, error: -5, error_note: 'Already paid for this month' };
+          }
         }
 
-        // Validate amount is an exact multiple (1..12) of monthly fee
-        const fee = Number((contract.shopMonthlyFee as any)?.toString?.() ?? contract.shopMonthlyFee ?? 0);
-        const incoming = Number(amount);
-        if (!(fee > 0 && Number.isFinite(fee) && Number.isFinite(incoming))) {
-          return { click_trans_id, merchant_trans_id, error: -2, error_note: 'Incorrect amount' };
-        }
-        const monthsFloat = incoming / fee;
-        const monthsInt = Math.floor(monthsFloat + 1e-9);
-        const withinCap = monthsInt >= 1 && monthsInt <= 12;
-        const exactMultiple = Math.abs(monthsFloat - monthsInt) < 1e-9;
-        if (!(withinCap && exactMultiple)) {
-          return { click_trans_id, merchant_trans_id, error: -2, error_note: 'Incorrect amount' };
+        // Validate amount is an exact multiple (1..12) of monthly fee (Skip for TX_ intents)
+        if (!merchant_trans_id.startsWith('TX_')) {
+          const fee = Number((contract.shopMonthlyFee as any)?.toString?.() ?? contract.shopMonthlyFee ?? 0);
+          const incoming = Number(amount);
+          if (!(fee > 0 && Number.isFinite(fee) && Number.isFinite(incoming))) {
+            return { click_trans_id, merchant_trans_id, error: -2, error_note: 'Incorrect amount' };
+          }
+          const monthsFloat = incoming / fee;
+          const monthsInt = Math.floor(monthsFloat + 1e-9);
+          const withinCap = monthsInt >= 1 && monthsInt <= 12;
+          const exactMultiple = Math.abs(monthsFloat - monthsInt) < 1e-9;
+          if (!(withinCap && exactMultiple)) {
+            return { click_trans_id, merchant_trans_id, error: -2, error_note: 'Incorrect amount' };
+          }
         }
 
 

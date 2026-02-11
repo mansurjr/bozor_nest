@@ -56,11 +56,25 @@ export class PaymeService {
 
     if (contractId) {
       const { store, contract, paidOrIsNotActive } = await checkStore(this.prisma, contractId);
-      if (!store || paidOrIsNotActive) {
+      if (!store || (paidOrIsNotActive && !contractId.startsWith('TX_'))) {
         return { error: PaymeError.AlreadyDone, data: null };
       }
 
-      // Accept exact integer multiples up to 12 months for contracts
+      // If it's a specific payment intent (TX_ prefix), validate against the intent transaction amount
+      if (contractId.startsWith('TX_')) {
+        const txId = parseInt(contractId.split('_')[1]);
+        const intentTx = await this.prisma.transaction.findUnique({ where: { id: txId } });
+        if (!intentTx) return { error: PaymeError.TransactionNotFound, data: null };
+        if (intentTx.status === 'PAID') return { error: PaymeError.AlreadyDone, data: null };
+        
+        if (amount && Math.abs(Number(amount) - Number(intentTx.amount) * 100) > 0.01) {
+          console.log(`[checkPerformTransaction] ❌ Amount mismatch for TX intent ${contractId}: incoming=${amount}, expected=${Number(intentTx.amount) * 100}`);
+          return { error: PaymeError.InvalidAmount, data: null };
+        }
+        return { result: { allow: true } };
+      }
+
+      // Accept exact integer multiples up to 12 months for contracts (Regular storeNumber flow)
       try {
         const fee = Number(contract?.shopMonthlyFee ?? 0);
         const incoming = Number(amount ?? 0);
@@ -116,25 +130,35 @@ export class PaymeService {
     let globStore: Store | null = null;
     let globAttendance: Attendance | null = null;
     let contractIdNum: number | undefined;
+    let intentId: number | undefined;
 
     if (contractId) {
       const { store, contract, paidOrIsNotActive } = await checkStore(this.prisma, contractId);
-      if (!store || paidOrIsNotActive) return { error: PaymeError.AlreadyDone, data: null };
+      if (!store || (paidOrIsNotActive && !contractId.startsWith('TX_'))) return { error: PaymeError.AlreadyDone, data: null };
+      
       globStore = store;
-      entityAmount = Number(contract?.shopMonthlyFee);
       contractIdNum = contract?.id;
 
-      // If incoming equals an exact integer multiple (1..12) of monthly fee, scale entityAmount accordingly
-      try {
-        const fee = entityAmount;
-        const incoming = Number(amount ?? 0);
-        if (fee > 0 && Number.isFinite(fee) && Number.isFinite(incoming)) {
-          const months = incoming / (fee * 100);
-          if (Math.abs(months - Math.floor(months)) < 1e-9 && months >= 1 && months <= 12) {
-            entityAmount = fee * Math.floor(months);
+      if (contractId.startsWith('TX_')) {
+        intentId = parseInt(contractId.split('_')[1]);
+        const intentTx = await this.prisma.transaction.findUnique({ where: { id: intentId } });
+        if (!intentTx) return { error: PaymeError.TransactionNotFound, data: null };
+        entityAmount = Number(intentTx.amount);
+      } else {
+        entityAmount = Number(contract?.shopMonthlyFee);
+
+        // If incoming equals an exact integer multiple (1..12) of monthly fee, scale entityAmount accordingly
+        try {
+          const fee = entityAmount;
+          const incoming = Number(amount ?? 0);
+          if (fee > 0 && Number.isFinite(fee) && Number.isFinite(incoming)) {
+            const months = incoming / (fee * 100);
+            if (Math.abs(months - Math.floor(months)) < 1e-9 && months >= 1 && months <= 12) {
+              entityAmount = fee * Math.floor(months);
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
 
       console.log(`[createTransaction] Contract: incoming=${amount}, expected(total)=${entityAmount}`);
     } else if (attendanceId) {
@@ -229,6 +253,7 @@ export class PaymeService {
         cancelTime: null,
         state: 1,
         reason: null,
+        prepareId: intentId,
         contract: contractIdNum ? { connect: { id: contractIdNum } } : undefined,
         attendance: globAttendance ? { connect: { id: globAttendance.id } } : undefined,
       },
@@ -275,7 +300,24 @@ export class PaymeService {
     });
 
     if (updatedTransaction.contractId) {
-      await this.contractPayments.recordPaidTransaction(updatedTransaction.id);
+      let forcedStart: Date | undefined;
+      // If we have a parent intent (via TX_ account flow), try to extract parameters
+      if (updatedTransaction.prepareId) {
+        const intentTx = await this.prisma.transaction.findUnique({ where: { id: updatedTransaction.prepareId } });
+        if (intentTx && intentTx.transactionId.startsWith('INTENT:')) {
+          const parts = intentTx.transactionId.split(':');
+          // Format: INTENT:contractId:count:startMonth:timestamp
+          if (parts[3] && parts[3].length === 7) {
+            forcedStart = new Date(parts[3] + '-01');
+          }
+          // Mark the parent intent as fulfilled
+          await this.prisma.transaction.update({
+            where: { id: updatedTransaction.prepareId },
+            data: { status: 'PAID' },
+          });
+        }
+      }
+      await this.contractPayments.recordPaidTransaction(updatedTransaction.id, forcedStart);
     }
 
     if (updatedTransaction.attendanceId) {
