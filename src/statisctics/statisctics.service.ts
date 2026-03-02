@@ -662,13 +662,9 @@ export class StatisticsService {
         ? new Date(Date.UTC(latestPaidPeriodEnd.getUTCFullYear(), latestPaidPeriodEnd.getUTCMonth(), 1))
         : contractStartMonth;
       const debtStart = nextUnpaidMonth > contractStartMonth ? nextUnpaidMonth : contractStartMonth;
-      const unpaidMonths =
-        expected > 0 && debtStart <= previousMonthStart
-          ? ((previousMonthStart.getUTCFullYear() - debtStart.getUTCFullYear()) * 12 +
-              (previousMonthStart.getUTCMonth() - debtStart.getUTCMonth()) +
-              1)
-          : 0;
-      const unpaid = expected * unpaidMonths;
+      const hasOverdueBeforeCurrentMonth = expected > 0 && debtStart <= previousMonthStart;
+      const unpaidMonths = hasOverdueBeforeCurrentMonth ? 1 : 0;
+      const unpaid = hasOverdueBeforeCurrentMonth ? expected : 0;
       totalDebt += unpaid;
       // Overpayment rule: more than one full month's fee paid within the selected month
       const overpaid = expected > 0 && paid > expected * 1.01;
