@@ -605,9 +605,13 @@ export class StatisticsService {
     const { start, end } = (range as any).start ? (range as any) : { start: (range as any).from, end: (range as any).to };
     const statusFilter = params.status && params.status !== 'all' ? params.status : null;
     const methodFilter = params.method || null;
+    const now = new Date();
+    const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
     const contracts = await this.prisma.contract.findMany({
       where: {
+        isActive: true,
         ...(params.sectionId ? { store: { sectionId: params.sectionId } } : {}),
       },
       include: {
@@ -623,11 +627,40 @@ export class StatisticsService {
       },
     });
 
+    const contractIds = contracts.map((c) => c.id);
+    const [paidPeriods, paidTransactionsCurrentMonth] = await Promise.all([
+      this.prisma.contractPaymentPeriod.findMany({
+        where: {
+          contractId: { in: contractIds },
+          periodStart: currentMonthStart,
+          status: 'PAID',
+        },
+        select: { contractId: true },
+      }),
+      this.prisma.transaction.findMany({
+        where: {
+          contractId: { in: contractIds },
+          status: 'PAID',
+          createdAt: { gte: currentMonthStart, lt: nextMonthStart },
+        },
+        select: { contractId: true },
+      }),
+    ]);
+    const paidCurrentMonthSet = new Set<number>();
+    for (const row of paidPeriods) paidCurrentMonthSet.add(row.contractId);
+    for (const row of paidTransactionsCurrentMonth) {
+      if (row.contractId) paidCurrentMonthSet.add(row.contractId);
+    }
+
+    let totalDebt = 0;
     const summary = contracts.map((contract) => {
       const expected = this.decimalToNumber(contract.shopMonthlyFee);
       const paidTx = contract.transactions.filter((t) => t.status === 'PAID');
       const paid = this.sumTransactions(paidTx as any);
-      const unpaid = Math.max(0, expected - paid);
+      const isCurrentMonthPaid = paidCurrentMonthSet.has(contract.id);
+      const unpaidMonths = expected > 0 && !isCurrentMonthPaid ? 1 : 0;
+      const unpaid = expected * unpaidMonths;
+      totalDebt += unpaid;
       // Overpayment rule: more than one full month's fee paid within the selected month
       const overpaid = expected > 0 && paid > expected * 1.01;
       const lastPayment = contract.transactions.slice().sort((a, b) => {
@@ -651,6 +684,7 @@ export class StatisticsService {
         expected,
         paid,
         unpaid,
+        unpaidMonths,
         overpaid,
         paymentsCount: contract.transactions.length,
         paidCount: paidTx.length,
@@ -662,7 +696,14 @@ export class StatisticsService {
       };
     });
 
-    return { from: start, to: end, timeZone: 'Asia/Tashkent', summary };
+    return {
+      from: start,
+      to: end,
+      timeZone: 'Asia/Tashkent',
+      debtMonth: `${currentMonthStart.getUTCFullYear()}-${String(currentMonthStart.getUTCMonth() + 1).padStart(2, '0')}`,
+      totalDebt,
+      summary,
+    };
   }
 
   async getReconciliationMonthlyRollup(params: {
