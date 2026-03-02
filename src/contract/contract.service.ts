@@ -421,8 +421,9 @@ export class ContractService {
 
   async update(id: number, dto: UpdateContractDto) {
     const contract = await this.findOne(id);
+    const isArchiving = dto.isActive === false && contract.isActive !== false;
 
-    if (await this.hasPaidThisMonth(contract.id)) {
+    if (!isArchiving && await this.hasPaidThisMonth(contract.id)) {
       throw new BadRequestException(
         "This contract has an active payment for the current month and cannot be modified until next month."
       );
